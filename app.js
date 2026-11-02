@@ -8,7 +8,7 @@ const ymd=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+Stri
 const today=()=>ymd(new Date());
 const ls={get(k){try{return localStorage.getItem(k)}catch(_){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(_){}}};
 function daysSince(s){if(!s)return null;const t=Date.parse(s+"T00:00:00");if(isNaN(t))return null;return Math.max(0,Math.floor((Date.now()-t)/864e5))}
-function ageLabel(k){if(k.status===6)return "完成";const d=daysSince(k.bought);if(d==null)return "";if(d>=365)return "積み "+Math.floor(d/365)+"年"+Math.floor(d%365/30)+"ヶ月";if(d>=30)return "積み "+Math.floor(d/30)+"ヶ月";return "積み "+d+"日"}
+function ageLabel(k){if(k.status===6)return "完成";if(!k.bought)return "購入日不明";const d=daysSince(k.bought);if(d==null)return "";if(d>=365)return "積み "+Math.floor(d/365)+"年"+Math.floor(d%365/30)+"ヶ月";if(d>=30)return "積み "+Math.floor(d/30)+"ヶ月";return "積み "+d+"日"}
 function stepsBar(n){return `<div class="steps${n===6?" done":""}" aria-hidden="true">${STEPS.map((_,i)=>`<i class="${i<=n?"on":""}"></i>`).join("")}</div>`}
 function pill(n){return `<span class="pill ${n===6?"s6":n>=2?"wip":""}">${STEPS[n]}</span>`}
 const DAY=864e5;
@@ -100,7 +100,7 @@ function render(){
   let rows=kits.filter(k=>filter==="all"||group(k)===filter)
     .filter(k=>!q||[k.name,k.dealer,k.sculptor,k.event,k.place].join(" ").toLowerCase().includes(q));
   rows.sort((a,b)=>sort==="name"?(a.name||"").localeCompare(b.name||"","ja"):
-    sort==="new"?(b.bought||"").localeCompare(a.bought||""):(a.bought||"9999").localeCompare(b.bought||"9999"));
+    sort==="new"?(b.bought||"").localeCompare(a.bought||""):(a.bought||"0000").localeCompare(b.bought||"0000"));
   const list=$("#list");
   if(!loaded){list.innerHTML="";return}
   if(failed){list.innerHTML=`<div class="notice">このブラウザでは端末内にデータを保存できませんでした。プライベートブラウズを使っている場合は、通常のタブで開いてください。</div>`;return}
@@ -212,8 +212,11 @@ function renderEditor(){
       <div class="two">${field("dealer","ディーラー/メーカー")}${field("sculptor","原型師")}</div>
       <div class="two">${field("scale","スケール","text","1/7、ノンスケール等")}
         <div class="f"><label for="e-material">素材</label><select id="e-material" name="material">${MATERIALS.map(m=>`<option ${draft.material===m?"selected":""}>${m}</option>`).join("")}</select></div></div>
-      <div class="two">${field("bought","購入日","date")}${field("price","価格（円）","number")}</div>
-      ${field("event","入手イベント・店","text","WF2026夏、通販 など")}
+      <div class="f"><label for="e-event">入手イベント・店</label><input id="e-event" name="event" type="text" placeholder="WF2026夏、通販 など" value="${esc(draft.event)}">
+        <select id="e-evpick" aria-label="主要イベントから選ぶ"><option value="">主要イベントから選ぶ（購入日も入ります）</option>${eventOptions()}</select></div>
+      <div class="two"><div class="f"><label for="e-bought">購入日</label><input id="e-bought" name="bought" type="date" value="${esc(draft.bought)}" ${draft.bought?"":"disabled"}>
+          <label class="check"><input type="checkbox" id="e-bunk" ${draft.bought?"":"checked"}>分からない</label></div>
+        ${field("price","価格（円）","number")}</div>
       <div class="f"><span class="flabel">工程</span><div class="seg" id="seg">${STEPS.map((s,i)=>`<button type="button" data-s="${i}" aria-pressed="${draft.status===i}">${s}</button>`).join("")}</div></div>
       ${field("place","保管場所","text","押し入れ上段・箱3 など")}
       <div class="f"><label for="e-check">検品メモ</label><textarea id="e-check" name="check" placeholder="欠品・気泡・歪み、交換依頼の期限など">${esc(draft.check)}</textarea></div>
@@ -228,7 +231,21 @@ function renderPhotos(){
     +Array.from({length:busy},()=>`<div class="ph up">取り込み中…</div>`).join("")
     +`<div class="addph"><span aria-hidden="true">＋ 写真を追加<br>（複数可）</span><input id="e-file" type="file" accept="image/*" multiple aria-label="写真を追加"></div>`;
 }
-function readForm(){const f=$("#kitform");for(const n of ["name","dealer","sculptor","scale","material","event","bought","price","place","check","memo"]){draft[n]=f.elements[n].value.trim()}draft.price=draft.price===""?"":Number(draft.price)}
+function readForm(){const f=$("#kitform");for(const n of ["name","dealer","sculptor","scale","material","event","bought","price","place","check","memo"]){draft[n]=f.elements[n].value.trim()}draft.price=draft.price===""?"":Number(draft.price);if($("#e-bunk")?.checked)draft.bought=""}
+/* 主要イベント＋自分が入力したことのあるイベントを、購入日つきで選べるようにする */
+function eventOptions(){
+  const known=new Set((typeof EVENTS!=="undefined"?EVENTS:[]).map(e=>e[0]));
+  const mine=new Map();
+  for(const k of kits)if(k.event&&k.bought&&!known.has(k.event))mine.set(k.event+"|"+k.bought,[k.event,k.bought]);
+  const fmt=d=>d.replace(/-/g,"/");
+  const opt=([n,d])=>`<option value="${esc(n)}|${esc(d)}">${esc(n)}（${fmt(d)}）</option>`;
+  const groups=[];
+  if(mine.size)groups.push(["これまでに入力したイベント",[...mine.values()].sort((a,b)=>b[1].localeCompare(a[1])).slice(0,20)]);
+  const ev=typeof EVENTS!=="undefined"?EVENTS:[];
+  groups.push(["ワンダーフェスティバル",ev.filter(e=>e[0].startsWith("ワンダーフェスティバル"))]);
+  groups.push(["トレジャーフェスタ",ev.filter(e=>e[0].startsWith("トレジャーフェスタ"))]);
+  return groups.filter(g=>g[1].length).map(([l,list])=>`<optgroup label="${esc(l)}">${list.map(opt).join("")}</optgroup>`).join("");
+}
 async function shrink(file){
   try{
     const url=URL.createObjectURL(file);const img=new Image();img.src=url;await img.decode();
@@ -239,6 +256,13 @@ async function shrink(file){
   }catch(_){return file}
 }
 $("#editor").addEventListener("change",async e=>{
+  if(e.target.id==="e-bunk"){const b=$("#e-bought");b.disabled=e.target.checked;if(!e.target.checked&&!b.value)b.value=today();return}
+  if(e.target.id==="e-evpick"){
+    const v=e.target.value;if(!v)return;const i=v.lastIndexOf("|");const name=v.slice(0,i),date=v.slice(i+1);
+    const ev=$("#e-event"),b=$("#e-bought");ev.value=name;b.value=date;b.disabled=false;$("#e-bunk").checked=false;
+    for(const el of [ev,b]){el.classList.remove("filled");void el.offsetWidth;el.classList.add("filled")}
+    e.target.value="";toast(`購入日を${date.replace(/-/g,"/")}にしました`);return;
+  }
   if(e.target.id!=="e-file")return;readForm();
   const files=[...e.target.files];busy+=files.length;renderPhotos();
   for(const f of files){

@@ -138,7 +138,7 @@ form{display:grid;gap:14px}
 .f input,.f select,.f textarea{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px;width:100%;min-width:0;font-size:16px}
 .f input[type="date"]{min-height:44px;-webkit-appearance:none;appearance:none}
 .f textarea{min-height:70px;resize:vertical}
-.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start}
 .two>*{min-width:0}
 .seg{display:flex;flex-wrap:wrap;gap:6px}
 .seg button{border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:6px 10px;font-size:13px}
@@ -192,6 +192,14 @@ form{display:grid;gap:14px}
 .intro-nav .grow{flex:1}
 .intro-actions{display:grid;gap:8px}
 .ok{color:var(--done);font-weight:700}
+
+/* 購入日・イベント */
+.check{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);letter-spacing:0;cursor:pointer}
+.check input{width:18px;height:18px;margin:0;accent-color:var(--tape)}
+.f input:disabled{opacity:.45}
+#e-evpick{margin-top:6px;color:var(--muted)}
+.filled{animation:fill 1.6s ease-out}
+@keyframes fill{from{background:color-mix(in srgb,var(--tape) 35%,var(--surface))}}
 
 /* 一覧の補助（PCの右側に出す概要） */
 .overview{display:grid;gap:16px;padding-block:24px}
@@ -275,6 +283,7 @@ form{display:grid;gap:14px}
 <div class="toast" id="toast" hidden></div>
 
 <script src="https://accounts.google.com/gsi/client" async></script>
+<script src="events.js" defer></script>
 <script src="app.js" defer></script>
 </body>
 </html>
