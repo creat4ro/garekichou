@@ -213,7 +213,8 @@ function renderEditor(){
       <div class="two">${field("scale","スケール","text","1/7、ノンスケール等")}
         <div class="f"><label for="e-material">素材</label><select id="e-material" name="material">${MATERIALS.map(m=>`<option ${draft.material===m?"selected":""}>${m}</option>`).join("")}</select></div></div>
       <div class="f"><label for="e-event">入手イベント・店</label><input id="e-event" name="event" type="text" placeholder="WF2026夏、通販 など" value="${esc(draft.event)}">
-        <select id="e-evpick" aria-label="主要イベントから選ぶ"><option value="">主要イベントから選ぶ（購入日も入ります）</option>${eventOptions()}</select></div>
+        <div class="evpick"><select id="e-evseries" aria-label="イベントを選ぶ"><option value="">主要イベントから選ぶ（購入日も入ります）</option>${eventGroups().map((g,i)=>`<option value="${i}">${esc(g.label)}</option>`).join("")}</select>
+        <select id="e-evround" aria-label="開催回を選ぶ" hidden></select></div></div>
       <div class="two"><div class="f"><label for="e-bought">購入日</label><input id="e-bought" name="bought" type="date" value="${esc(draft.bought)}" ${draft.bought?"":"disabled"}>
           <label class="check"><input type="checkbox" id="e-bunk" ${draft.bought?"":"checked"}>分からない</label></div>
         ${field("price","価格（円）","number")}</div>
@@ -233,18 +234,24 @@ function renderPhotos(){
 }
 function readForm(){const f=$("#kitform");for(const n of ["name","dealer","sculptor","scale","material","event","bought","price","place","check","memo"]){draft[n]=f.elements[n].value.trim()}draft.price=draft.price===""?"":Number(draft.price);if($("#e-bunk")?.checked)draft.bought=""}
 /* 主要イベント＋自分が入力したことのあるイベントを、購入日つきで選べるようにする */
-function eventOptions(){
-  const known=new Set((typeof EVENTS!=="undefined"?EVENTS:[]).map(e=>e[0]));
+/* まずイベント名を選び、次に開催回を選ぶ2段階のリスト */
+const SERIES=["ワンダーフェスティバル","となりのモケイフェスティバル","トレジャーフェスタ"];
+let evGroupsCache=[];
+function eventGroups(){
+  const ev=typeof EVENTS!=="undefined"?EVENTS:[];
+  const known=new Set(ev.map(e=>e[0]));
   const mine=new Map();
   for(const k of kits)if(k.event&&k.bought&&!known.has(k.event))mine.set(k.event+"|"+k.bought,[k.event,k.bought]);
-  const fmt=d=>d.replace(/-/g,"/");
-  const opt=([n,d])=>`<option value="${esc(n)}|${esc(d)}">${esc(n)}（${fmt(d)}）</option>`;
-  const groups=[];
-  if(mine.size)groups.push(["これまでに入力したイベント",[...mine.values()].sort((a,b)=>b[1].localeCompare(a[1])).slice(0,20)]);
-  const ev=typeof EVENTS!=="undefined"?EVENTS:[];
-  for(const series of ["ワンダーフェスティバル","となりのモケイフェスティバル","トレジャーフェスタ"])
-    groups.push([series,ev.filter(e=>e[0].startsWith(series))]);
-  return groups.filter(g=>g[1].length).map(([l,list])=>`<optgroup label="${esc(l)}">${list.map(opt).join("")}</optgroup>`).join("");
+  const groups=SERIES.map(s=>({label:s,prefix:s,list:ev.filter(e=>e[0].startsWith(s))}));
+  if(mine.size)groups.push({label:"これまでに入力したイベント",prefix:"",list:[...mine.values()].sort((a,b)=>b[1].localeCompare(a[1])).slice(0,30)});
+  evGroupsCache=groups.filter(g=>g.list.length);
+  return evGroupsCache;
+}
+function roundLabel(g,[name,date]){
+  let short=g.prefix?name.slice(g.prefix.length).replace(/^in/,""):name;
+  if(g.prefix==="となりのモケイフェスティバル")short="第"+short.replace(/^(\d+)/,"$1回");
+  const d=new Date(date+"T12:00:00");
+  return `${short}　${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}（${"日月火水木金土"[d.getDay()]}）`;
 }
 async function shrink(file){
   try{
@@ -257,11 +264,20 @@ async function shrink(file){
 }
 $("#editor").addEventListener("change",async e=>{
   if(e.target.id==="e-bunk"){const b=$("#e-bought");b.disabled=e.target.checked;if(!e.target.checked&&!b.value)b.value=today();return}
-  if(e.target.id==="e-evpick"){
-    const v=e.target.value;if(!v)return;const i=v.lastIndexOf("|");const name=v.slice(0,i),date=v.slice(i+1);
+  if(e.target.id==="e-evseries"){
+    const r=$("#e-evround"),g=evGroupsCache[+e.target.value];
+    if(!g){r.hidden=true;r.innerHTML="";return}
+    r.innerHTML=`<option value="">${esc(g.label)}：開催回を選ぶ</option>`+g.list.map((x,i)=>`<option value="${i}">${esc(roundLabel(g,x))}</option>`).join("");
+    r.hidden=false;try{r.showPicker?.()}catch(_){r.focus()}
+    return;
+  }
+  if(e.target.id==="e-evround"){
+    const g=evGroupsCache[+$("#e-evseries").value],x=g?.list[+e.target.value];if(!x)return;
+    const [name,date]=x;
     const ev=$("#e-event"),b=$("#e-bought");ev.value=name;b.value=date;b.disabled=false;$("#e-bunk").checked=false;
     for(const el of [ev,b]){el.classList.remove("filled");void el.offsetWidth;el.classList.add("filled")}
-    e.target.value="";toast(`購入日を${date.replace(/-/g,"/")}にしました`);return;
+    $("#e-evseries").value="";e.target.hidden=true;e.target.innerHTML="";
+    toast(`${name}（${date.replace(/-/g,"/")}）を入れました`);return;
   }
   if(e.target.id!=="e-file")return;readForm();
   const files=[...e.target.files];busy+=files.length;renderPhotos();
