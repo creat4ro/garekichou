@@ -1,6 +1,6 @@
 "use strict";
 const STEPS=["未開封","検品済","洗浄","仮組","サフ","塗装","完成"];
-const MATERIALS=["レジン","ソフビ","メタル","その他"];
+const MATERIALS=["レジン（キャスト）","レジン（3Dプリント）","ソフビ","メタル","その他"];
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const uid=()=>(crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2,10));
@@ -98,7 +98,7 @@ function render(){
   $("#chips").innerHTML=defs.map(([v,l])=>`<button class="chip" data-f="${v}" aria-pressed="${filter===v}">${l}<span class="num">${counts[v]}</span></button>`).join("");
   const q=$("#q").value.trim().toLowerCase(), sort=$("#sort").value;
   let rows=kits.filter(k=>filter==="all"||group(k)===filter)
-    .filter(k=>!q||[k.name,k.dealer,k.sculptor,k.event,k.place].join(" ").toLowerCase().includes(q));
+    .filter(k=>!q||[k.name,k.dealer,k.sculptor,k.event,k.place,k.material].join(" ").toLowerCase().includes(q));
   rows.sort((a,b)=>sort==="name"?(a.name||"").localeCompare(b.name||"","ja"):
     sort==="new"?(b.bought||"").localeCompare(a.bought||""):(a.bought||"0000").localeCompare(b.bought||"0000"));
   const list=$("#list");
@@ -199,7 +199,7 @@ $("#detail").addEventListener("click",async e=>{
 /* ---------- 登録・編集 ---------- */
 let draft=null, newPhotos=[], removed=[], busy=0;
 function openEditor(k){
-  draft=k?JSON.parse(JSON.stringify(k)):{name:"",dealer:"",sculptor:"",scale:"",material:"レジン",event:"",bought:today(),price:"",status:0,check:"",place:"",memo:"",photos:[]};
+  draft=k?JSON.parse(JSON.stringify(k)):{name:"",dealer:"",sculptor:"",scale:"",material:"レジン（キャスト）",event:"",bought:today(),price:"",status:0,check:"",place:"",memo:"",photos:[]};
   newPhotos=[];removed=[];renderEditor();$("#editor").hidden=false;$("#editor").scrollTop=0;
 }
 function field(id,label,type="text",ph=""){return `<div class="f"><label for="e-${id}">${label}</label><input id="e-${id}" name="${id}" type="${type}" ${type==="number"?'inputmode="numeric" min="0"':""} placeholder="${ph}" value="${esc(draft[id])}"></div>`}
@@ -211,7 +211,7 @@ function renderEditor(){
       <div class="f"><label for="e-name">キット名（必須）</label><input id="e-name" name="name" required value="${esc(draft.name)}" placeholder="例：〇〇 1/7 レジンキャストキット"></div>
       <div class="two">${field("dealer","ディーラー/メーカー")}${field("sculptor","原型師")}</div>
       <div class="two">${field("scale","スケール","text","1/7、ノンスケール等")}
-        <div class="f"><label for="e-material">素材</label><select id="e-material" name="material">${MATERIALS.map(m=>`<option ${draft.material===m?"selected":""}>${m}</option>`).join("")}</select></div></div>
+        <div class="f"><label for="e-material">素材</label><select id="e-material" name="material">${(draft.material&&!MATERIALS.includes(draft.material)?[draft.material,...MATERIALS]:MATERIALS).map(m=>`<option value="${esc(m)}" ${draft.material===m?"selected":""}>${esc(m==="レジン"?"レジン（種類を選んでください）":m)}</option>`).join("")}</select></div></div>
       <div class="f"><label for="e-event">入手イベント・店</label><input id="e-event" name="event" type="text" placeholder="WF2026夏、通販 など" value="${esc(draft.event)}">
         <div class="evpick"><select id="e-evseries" aria-label="イベントを選ぶ"><option value="">主要イベントから選ぶ（購入日も入ります）</option>${eventGroups().map((g,i)=>`<option value="${i}">${esc(g.label)}</option>`).join("")}</select>
         <select id="e-evround" aria-label="開催回を選ぶ" hidden></select></div></div>
