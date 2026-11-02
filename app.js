@@ -107,7 +107,7 @@ function render(){
   let html="";
   const last=Number(ls.get("lastBackup")||0);
   if(total&&Date.now()-last>30*864e5)html+=`<div class="remind"><span>${last?"最後のバックアップから30日以上たっています。":"まだバックアップがありません。"}</span><button class="btn" data-open-backup>保存する</button></div>`;
-  if(!total){list.innerHTML=html+`<div class="empty">まだキットがありません。<br>右下の「キットを登録」から、箱の写真と一緒に1つ目を追加しましょう。<br><br>前の機種のバックアップがある場合は、右上の「バックアップ」から読み込めます。</div>`;return}
+  if(!total){list.innerHTML=html+`<div class="empty">まだキットがありません。<br>「＋ キットを登録」から、箱の写真と一緒に1つ目を追加しましょう。<br><br>前の機種のバックアップがある場合は、右上の「バックアップ」から読み込めます。</div>`;return}
   if(!rows.length){list.innerHTML=html+`<div class="empty">条件に合うキットはありません。</div>`;return}
   list.innerHTML=html+rows.map(k=>{
     const d=daysSince(k.bought), old=k.status<6&&d!=null&&d>=365;
@@ -140,7 +140,7 @@ wideMQ.addEventListener?wideMQ.addEventListener("change",onWideChange):wideMQ.ad
 function renderOverview(){
   const el=$("#detail");
   if(!loaded){el.innerHTML="";return}
-  if(!kits.length){el.innerHTML=`<div class="wrap"><div class="overview"><h2>ようこそ</h2><p class="lead">左下の「キットを登録」から、箱の写真と一緒に1つ目を追加しましょう。前の機種やスマホのバックアップがある場合は、左上の「バックアップ」から読み込めます。</p></div></div>`;return}
+  if(!kits.length){el.innerHTML=`<div class="wrap"><div class="overview"><h2>ようこそ</h2><p class="lead">「＋ キットを登録」から、箱の写真と一緒に1つ目を追加しましょう。前の機種やスマホのバックアップがある場合は、左上の「バックアップ」から読み込めます。</p></div></div>`;return}
   const cnt=STEPS.map((_,i)=>kits.filter(k=>k.status===i).length);
   const old=kits.filter(k=>k.status<6&&daysSince(k.bought)!=null).sort((a,b)=>(a.bought||"").localeCompare(b.bought||"")).slice(0,6);
   el.innerHTML=`<div class="wrap"><div class="overview">
@@ -292,7 +292,7 @@ async function openBackup(){
       <p id="immsg" style="margin:8px 0 0"></p></div>
     <div class="box"><h3>機種変更の手順</h3>
       <p style="margin:0">1. 前のスマホで「バックアップファイルを作る」<br>2. ファイルをクラウドかAirDrop・メールなどで新しいスマホへ送る<br>3. 新しいスマホでこのアプリを開き、ホーム画面に追加<br>4. 「ファイルを選んで読み込む」で取り込む<br><br>iPhoneとAndroidの間でも同じファイルで移せます。${CLIENT_ID?"Googleドライブで同期している場合は、新しい端末で同じアカウントにログインするだけで移せます。":""}${usage?"<br><br>"+usage:""}</p></div>
-    <p class="legal"><a href="privacy.html">プライバシーポリシー</a><a href="terms.html">利用規約</a></p>
+    <p class="legal"><a href="#" data-b="intro">使い方を見る</a><a href="privacy.html">プライバシーポリシー</a><a href="terms.html">利用規約</a></p>
   </div>`;
   renderSyncBox();
   $("#backup").hidden=false;$("#backup").scrollTop=0;
@@ -302,6 +302,7 @@ $("#backup").addEventListener("click",async e=>{
   if(a==="close"){$("#backup").hidden=true;render()}
   if(a==="export")exportBackup(e.target.closest("button"));
   if(a==="login")connect();
+  if(a==="intro"){e.preventDefault();$("#backup").hidden=true;openIntro(0)}
   if(a==="syncnow"){if(sync.token&&Date.now()<sync.exp)runSync();else connect()}
   if(a==="logout"){logout(false)}
   if(a==="askwipe"){sync.confirmWipe=true;renderSyncBox()}
@@ -547,14 +548,87 @@ document.addEventListener("visibilitychange",()=>{
   else{sync.state="needtap";updateSyncUI()}
 });
 
+/* ---------- 初回の案内 ---------- */
+let introStep=0, installEvt=null;
+const isIOS=/iPhone|iPad|iPod/.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
+const isAndroid=/Android/.test(navigator.userAgent);
+const isStandalone=()=>matchMedia("(display-mode: standalone)").matches||navigator.standalone===true;
+window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();installEvt=e;if(!$("#intro").hidden)renderIntro()});
+window.addEventListener("appinstalled",()=>{installEvt=null;if(!$("#intro").hidden)renderIntro()});
+function introPages(){
+  const pages=[];
+  pages.push(()=>`<h2 id="intro-title"><span>ガレキ</span>積み帳へようこそ</h2>
+    <p>積んでいるガレージキットを、写真と一緒に記録しておくアプリです。</p>
+    <ul class="feat">
+      <li><span class="ic" aria-hidden="true">1</span><div><b>写真付きで登録</b>箱やパーツの写真、ディーラー、原型師、購入日、保管場所をまとめて残せます。</div></li>
+      <li><span class="ic" aria-hidden="true">2</span><div><b>工程を進めるだけで日付が残る</b>未開封から完成まで、いつどこまで進んだかを自動で記録します。</div></li>
+      <li><span class="ic" aria-hidden="true">3</span><div><b>積み期間がひと目で分かる</b>1年以上積んでいるキットは赤く表示されます。</div></li>
+    </ul>`);
+  pages.push(()=>`<h2 id="intro-title">工程はボタンひとつで進められます</h2>
+    <p>キットを開いて「次の工程に進める」を押すと、その日の日付で記録されます。押し間違えたら「1つ戻す」で取り消せます。</p>
+    <div class="intro-demo">${stepsBar(3)}<div class="stepnames">${STEPS.map((s,i)=>`<span class="${i===3?"cur":""}">${s}</span>`).join("")}</div></div>
+    <p class="note">記録した日付は、あとからタップして直せます。</p>`);
+  if(!isStandalone())pages.push(()=>{
+    let how;
+    if(installEvt)how=`<p>ボタンを押すと、ホーム画面やデスクトップにアプリとして追加できます。</p><div class="intro-actions"><button class="btn primary wide" data-i="install">アプリとして追加する</button></div>`;
+    else if(isIOS)how=`<ol class="howto"><li>Safariの下（または上）にある <kbd>共有</kbd> ボタンを押す</li><li><kbd>ホーム画面に追加</kbd> を選ぶ</li><li>右上の <kbd>追加</kbd> を押す</li></ol>
+      <p class="note">iPhoneでは、ホーム画面に追加しないまましばらく開かないと、保存したデータが消されることがあります。必ず追加してから使ってください。</p>`;
+    else if(isAndroid)how=`<ol class="howto"><li>Chromeの右上の <kbd>︙</kbd> を押す</li><li><kbd>ホーム画面に追加</kbd> または <kbd>アプリをインストール</kbd> を選ぶ</li></ol>`;
+    else how=`<p>ChromeやEdgeでは、アドレスバーの右端にあるインストールのアイコンから、アプリとして追加できます。ブラウザのまま使っても問題ありません。</p>`;
+    return `<h2 id="intro-title">ホーム画面に追加しましょう</h2>
+      <p>追加すると、普通のアプリのように全画面で開けて、電波がない場所でも使えます。</p>${how}`;
+  });
+  if(CLIENT_ID)pages.push(()=>`<h2 id="intro-title">データの保存場所</h2>
+    <p>登録したキットと写真は、この端末の中に保存されます。作者を含め、ほかの人には見えません。</p>
+    <p>Googleアカウントでログインすると、あなたのGoogleドライブを通して、スマホとPCなど複数の端末で同じ内容を使えます。機種変更のときも、ログインするだけで引き継げます。</p>
+    <div class="intro-actions">${sync.linked?`<p class="ok">${esc(sync.email)} で同期しています</p>`:`<button class="btn primary wide" data-i="login">Googleでログインして同期する</button>${sync.err?`<p class="err">${esc(sync.err)}</p>`:""}<p class="note">あとで右上の「バックアップ」からも設定できます。同期しない場合は、ときどきバックアップファイルを保存しておくと安心です。</p>`}</div>`);
+  pages.push(()=>`<h2 id="intro-title">さっそく始めましょう</h2>
+    <p>まずは手元のキットを1つ登録してみましょう。箱の写真を撮っておくと、一覧で見分けやすくなります。</p>
+    <div class="intro-actions">
+      <button class="btn primary wide" data-i="first">最初のキットを登録する</button>
+      <button class="btn wide" data-i="restore">前の端末のバックアップを読み込む</button>
+    </div>
+    <p class="note">使い始めると、<a href="terms.html">利用規約</a>と<a href="privacy.html">プライバシーポリシー</a>に同意したものとみなします。</p>`);
+  return pages;
+}
+function renderIntro(){
+  const pages=introPages();introStep=Math.max(0,Math.min(introStep,pages.length-1));
+  const last=introStep===pages.length-1;
+  $("#intro").innerHTML=`<div class="wrap">
+    <div class="intro-top"><div class="dots" aria-label="${introStep+1} / ${pages.length}">${pages.map((_,i)=>`<i class="${i<=introStep?"on":""}"></i>`).join("")}</div>
+      ${last?"":`<button class="btn ghost" data-i="skip">スキップ</button>`}</div>
+    <div class="intro-body">${pages[introStep]()}</div>
+    <div class="intro-nav">
+      ${introStep>0?`<button class="btn ghost" data-i="prev">戻る</button>`:`<span></span>`}
+      ${last?`<button class="btn" data-i="done">一覧を見る</button>`:`<button class="btn primary" data-i="next">次へ</button>`}
+    </div></div>`;
+  $("#intro").scrollTop=0;
+}
+function introGo(d){introStep+=d;renderIntro()}
+function openIntro(step){introStep=step||0;renderIntro();$("#intro").hidden=false;$("#intro [data-i=next]")?.focus()}
+function closeIntro(){$("#intro").hidden=true;ls.set("introDone","1")}
+$("#intro").addEventListener("click",async e=>{
+  const a=e.target.closest("[data-i]")?.dataset.i;if(!a)return;
+  if(a==="next")introGo(1);
+  else if(a==="prev")introGo(-1);
+  else if(a==="skip"||a==="done")closeIntro();
+  else if(a==="first"){closeIntro();openEditor(null)}
+  else if(a==="restore"){closeIntro();openBackup()}
+  else if(a==="install"&&installEvt){installEvt.prompt();try{await installEvt.userChoice}catch(_){}installEvt=null;renderIntro()}
+  else if(a==="login"){await connect();if(sync.pendingEmail){closeIntro();return}renderIntro()}
+});
+$("#openIntro").addEventListener("click",e=>{e.preventDefault();openIntro(0)});
+
 /* ---------- 起動 ---------- */
 document.addEventListener("keydown",e=>{
   if(e.target.closest("input,textarea,select"))return;
   if(e.key==="Escape"){
     if(!$("#editor").hidden){$("#editor [data-a=cancel]")?.click();return}
+    if(!$("#intro").hidden){closeIntro();return}
     if(!$("#backup").hidden){$("#backup").hidden=true;render();return}
     if(curId)closeDetail();return;
   }
+  if(!$("#intro").hidden){if(e.key==="ArrowRight")introGo(1);if(e.key==="ArrowLeft")introGo(-1);return}
   if(!wide||!$("#editor").hidden||!$("#backup").hidden)return;
   if(e.key==="ArrowDown"||e.key==="ArrowUp"){
     const ids=[...document.querySelectorAll("#list .card")].map(c=>c.dataset.id);if(!ids.length)return;
@@ -565,5 +639,6 @@ document.addEventListener("keydown",e=>{
 if(wide)$("#detail").hidden=false;
 updateSyncUI();
 render();
-if(!("indexedDB" in window)){failed=true;loaded=true;render()}else refresh();
+if(!("indexedDB" in window)){failed=true;loaded=true;render()}
+else refresh().then(()=>{if(ls.get("introDone")!=="1"&&!kits.length&&!sync.linked)openIntro(0)});
 if("serviceWorker" in navigator&&location.protocol==="https:")navigator.serviceWorker.register("sw.js").catch(()=>{});

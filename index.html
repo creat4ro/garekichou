@@ -166,6 +166,33 @@ form{display:grid;gap:14px}
 .legal a,.foot a{color:var(--muted)}
 .foot{display:flex;gap:16px;justify-content:center;font-size:12px;padding-block:20px 0}
 
+/* 初回の案内 */
+#intro{z-index:25}
+#intro .wrap{max-width:520px;min-height:100%;display:flex;flex-direction:column;gap:20px;padding-block:20px 8px}
+.intro-top{display:flex;justify-content:space-between;align-items:center;min-height:40px}
+.dots{display:flex;gap:6px}
+.dots i{width:22px;height:4px;border-radius:2px;background:var(--line)}
+.dots i.on{background:var(--tape)}
+.intro-body{flex:1;display:grid;align-content:start;gap:14px}
+.intro-body h2{font-family:var(--f-display);font-weight:400;font-size:24px;line-height:1.4;margin:0;text-wrap:balance}
+.intro-body h2 span{background:var(--tape);color:var(--tape-ink);padding:0 6px}
+.intro-body p{margin:0;font-size:15px}
+.intro-body .note{font-size:13px;color:var(--muted)}
+.feat{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.feat li{display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:start;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;font-size:14px}
+.feat b{display:block;font-size:15px}
+.feat .ic{width:30px;height:30px;border-radius:8px;background:var(--tape);color:var(--tape-ink);display:grid;place-items:center;font-weight:700;font-family:var(--f-data);font-size:13px}
+.howto{margin:0;padding-left:1.4em;display:grid;gap:6px;font-size:15px}
+.howto kbd{font-family:var(--f-body);font-size:13px;border:1px solid var(--line);background:var(--surface);border-radius:5px;padding:0 6px;white-space:nowrap}
+.intro-demo{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px;display:grid;gap:8px}
+.intro-demo .steps{max-width:none}
+.intro-demo .steps i{height:6px}
+.intro-nav{display:flex;gap:10px;justify-content:space-between;align-items:center}
+.intro-nav .btn{padding:12px 18px}
+.intro-nav .grow{flex:1}
+.intro-actions{display:grid;gap:8px}
+.ok{color:var(--done);font-weight:700}
+
 /* 一覧の補助（PCの右側に出す概要） */
 .overview{display:grid;gap:16px;padding-block:24px}
 .overview h2{font-family:var(--f-display);font-weight:400;font-size:20px;margin:0}
@@ -200,6 +227,8 @@ form{display:grid;gap:14px}
   #detail [data-a="close"]{visibility:hidden}
   #detail .gallery .main{max-height:58vh}
   #detail .detail-cols{display:grid;gap:16px;grid-template-columns:minmax(0,1fr)}
+  #intro{inset:8vh 0 auto 0;margin:0 auto;width:min(560px,calc(100vw - 48px));max-height:84vh;border-radius:14px;border:1px solid var(--line);
+    box-shadow:0 0 0 100vmax rgba(10,14,15,.45),0 20px 50px rgba(0,0,0,.25);padding:28px}
   #editor,#backup{inset:4vh 0 auto 0;margin:0 auto;width:min(760px,calc(100vw - 48px));max-height:92vh;border-radius:14px;border:1px solid var(--line);
     box-shadow:0 0 0 100vmax rgba(10,14,15,.45),0 20px 50px rgba(0,0,0,.25);padding-left:28px;padding-right:28px;padding-bottom:28px}
   #editor .wrap,#backup .wrap{max-width:none}
@@ -236,12 +265,13 @@ form{display:grid;gap:14px}
     <div class="chips" id="chips" role="toolbar" aria-label="工程で絞り込み"></div>
   </header>
   <main id="list" class="list"></main>
-  <footer class="foot"><a href="privacy.html">プライバシーポリシー</a><a href="terms.html">利用規約</a></footer>
+  <footer class="foot"><a href="#" id="openIntro">使い方</a><a href="privacy.html">プライバシーポリシー</a><a href="terms.html">利用規約</a></footer>
 </div>
 <button class="fab" id="fab">＋ キットを登録</button>
 <section class="sheet" id="detail" hidden></section>
 <section class="sheet" id="editor" hidden></section>
 <section class="sheet" id="backup" hidden></section>
+<section class="sheet" id="intro" hidden role="dialog" aria-modal="true" aria-labelledby="intro-title"></section>
 <div class="toast" id="toast" hidden></div>
 
 <script src="https://accounts.google.com/gsi/client" async></script>
