@@ -6,12 +6,12 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com/gsi/client; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com/gsi/style; font-src https://fonts.gstatic.com; img-src 'self' blob: data:; connect-src 'self' data: https://www.googleapis.com https://accounts.google.com/gsi/; frame-src https://accounts.google.com/gsi/; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>ガレキ積み帳</title>
-<meta name="theme-color" content="#ECEEEE" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#161A1B" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#161A1B">
+<meta name="color-scheme" content="dark">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="積み帳">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" href="icon-192.png">
@@ -19,17 +19,15 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@500&display=swap">
 <style>
 /* Layout: a workbench shelf — sticky header with stock summary, filter chips, a single column of kit cards; detail, edit and backup open as full-height sheets. */
+/* 端末の設定にかかわらずダークで固定（Androidの下のバーの色と揃えるため） */
 :root{
-  --bg:#ECEEEE; --surface:#F9FAFA; --sunken:#E2E6E5; --ink:#1D2223; --muted:#636D6C; --line:#D2D8D7;
-  --tape:#E6BC3A; --tape-ink:#2A2208; --done:#3E8A5E; --warn:#B4532A;
+  --bg:#161A1B; --surface:#202627; --sunken:#1A1F20; --ink:#E6EBEA; --muted:#97A2A1; --line:#323A3B;
+  --tape:#E8C14E; --tape-ink:#211A05; --done:#5DB582; --warn:#E07A4E;
   --f-display:"Dela Gothic One","Zen Kaku Gothic New","Hiragino Sans",system-ui,sans-serif;
   --f-body:"Zen Kaku Gothic New","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
   --f-data:"IBM Plex Mono",ui-monospace,Menlo,monospace;
-  --r:10px; color-scheme:light;
+  --r:10px; color-scheme:dark;
 }
-@media (prefers-color-scheme: dark){:root{
-  --bg:#161A1B; --surface:#202627; --sunken:#1A1F20; --ink:#E6EBEA; --muted:#97A2A1; --line:#323A3B;
-  --tape:#E8C14E; --tape-ink:#211A05; --done:#5DB582; --warn:#E07A4E; color-scheme:dark}}
 
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%;background:var(--bg);min-height:100%;overscroll-behavior-y:none}
