@@ -29,8 +29,15 @@ function mapStep(oldSteps,i,newSteps){
 function changeCourse(k,kind,course){
   const from=stepsOf(k);const nk={...k,kind,course:kind==="plamo"?course:undefined};const to=stepsOf(nk);
   if(from===to)return nk;
-  nk.status=mapStep(from,Number(k.status)||0,to);
+  const cur=Number(k.status)||0;
   nk.history=(k.history||[]).map(e=>{const n=e.n||from[e.s];let x=to.indexOf(n);if(x<0&&STEP_ALIAS[n])x=to.indexOf(STEP_ALIAS[n]);return {...e,n,s:x}});
+  /* 今の工程は、記録の中で新しい工程にもある一番新しいものに合わせる（行って戻したときに元の工程に戻るように）。
+     記録がなければ名前で合わせる。完成していたものは完成のまま、完成していなければ完成にはしない */
+  const last=Math.max(0,from.length-1), nlast=to.length-1;
+  let st=-1;
+  if(cur>=last)st=nlast;
+  else{for(let i=nk.history.length-1;i>=0;i--){if(nk.history[i].s>=0){st=Math.min(nk.history[i].s,nlast-1);break}}}
+  nk.status=st>=0?st:mapStep(from,cur,to);
   return nk;
 }
 const KINDS=[["gk","ガレキ"],["plamo","プラモ"]];
@@ -51,8 +58,13 @@ const fmtDate=t=>ymd(new Date(t));
 function withStatus(k,s){
   const h=Array.isArray(k.history)?k.history.slice():[];
   if(s===k.status)return {...k,history:h};
-  const last=h[h.length-1];
-  if(s<k.status&&last&&last.s===k.status){h.pop();if(!h.length||h[h.length-1].s!==s)h.push({s,at:Date.now(),n:stepsOf(k)[s]})}
+  if(s<k.status){
+    /* 戻すときは、今の工程の記録と、それより後に付いた記録（作り方を変える前の工程など）を取り消す */
+    let idx=-1;for(let i=h.length-1;i>=0;i--){if(h[i].s===k.status){idx=i;break}}
+    if(idx>=0)h.splice(idx);
+    let lm=null;for(let i=h.length-1;i>=0;i--){if(h[i].s>=0){lm=h[i];break}}
+    if(!lm||lm.s!==s)h.push({s,at:Date.now(),n:stepsOf(k)[s]});
+  }
   else h.push({s,at:Date.now(),n:stepsOf(k)[s]});
   return {...k,status:s,history:h};
 }
@@ -63,8 +75,9 @@ function logBox(k){
   const rows=h.slice().reverse().map(e=>{
     const next=h[e.i+1];const span=(next?next.at:Date.now())-e.at;
     const name=stepsOf(k)[e.s]??e.n??"";const fin=name==="完成";
-    const dur=fin&&!next?"":(next?`${daysLabel(span)}`:(e.s===k.status?`継続中・${daysLabel(span)}`:""));
-    return `<li class="${fin?"s6":""}"><span class="dot" aria-hidden="true"></span><span class="st">${esc(name)}<span class="dur">${dur}</span></span><input type="date" data-log="${e.i}" value="${fmtDate(e.at)}" aria-label="${esc(name)}になった日"></li>`}).join("");
+    const off=!(e.s>=0);
+    const dur=off?"今の作り方にない工程":fin&&!next?"":(next?`${daysLabel(span)}`:(e.s===k.status?`継続中・${daysLabel(span)}`:""));
+    return `<li class="${fin?"s6":""}${off?" off":""}"><span class="dot" aria-hidden="true"></span><span class="st">${esc(name)}<span class="dur">${dur}</span></span><input type="date" data-log="${e.i}" value="${fmtDate(e.at)}" aria-label="${esc(name)}になった日"></li>`}).join("");
   const first=h[0], end=isDone(k)?h[h.length-1].at:Date.now();
   const total=h.length>1||k.status!==first.s?`<span class="sub">記録開始から${daysLabel(end-first.at)}</span>`:"";
   return `<div class="box"><h3>工程の記録${total}</h3><ul class="log">${rows}</ul><p style="margin:6px 0 0;font-size:12px">日付をタップすると修正できます。</p></div>`;
