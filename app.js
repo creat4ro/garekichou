@@ -1,0 +1,569 @@
+"use strict";
+const STEPS=["未開封","検品済","洗浄","仮組","サフ","塗装","完成"];
+const MATERIALS=["レジン","ソフビ","メタル","その他"];
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const uid=()=>(crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2,10));
+const ymd=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+const today=()=>ymd(new Date());
+const ls={get(k){try{return localStorage.getItem(k)}catch(_){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(_){}}};
+function daysSince(s){if(!s)return null;const t=Date.parse(s+"T00:00:00");if(isNaN(t))return null;return Math.max(0,Math.floor((Date.now()-t)/864e5))}
+function ageLabel(k){if(k.status===6)return "完成";const d=daysSince(k.bought);if(d==null)return "";if(d>=365)return "積み "+Math.floor(d/365)+"年"+Math.floor(d%365/30)+"ヶ月";if(d>=30)return "積み "+Math.floor(d/30)+"ヶ月";return "積み "+d+"日"}
+function stepsBar(n){return `<div class="steps${n===6?" done":""}" aria-hidden="true">${STEPS.map((_,i)=>`<i class="${i<=n?"on":""}"></i>`).join("")}</div>`}
+function pill(n){return `<span class="pill ${n===6?"s6":n>=2?"wip":""}">${STEPS[n]}</span>`}
+const DAY=864e5;
+const fmtDate=t=>ymd(new Date(t));
+/* 工程の記録：進めたら追加、「1つ戻す」は直前の記録を取り消す */
+function withStatus(k,s){
+  const h=Array.isArray(k.history)?k.history.slice():[];
+  if(s===k.status)return {...k,history:h};
+  const last=h[h.length-1];
+  if(s<k.status&&last&&last.s===k.status){h.pop();if(!h.length||h[h.length-1].s!==s)h.push({s,at:Date.now()})}
+  else h.push({s,at:Date.now()});
+  return {...k,status:s,history:h};
+}
+function daysLabel(ms){const d=Math.floor(ms/DAY);return d<1?"1日未満":d+"日"}
+function logBox(k){
+  const h=(k.history||[]).map((e,i)=>({...e,i}));
+  if(!h.length)return `<div class="box"><h3>工程の記録</h3><p style="margin:0">工程を進めると、その日付がここに自動で記録されます。</p></div>`;
+  const rows=h.slice().reverse().map(e=>{
+    const next=h[e.i+1];const span=(next?next.at:Date.now())-e.at;
+    const dur=e.s===6&&!next?"":(next?`${daysLabel(span)}`:`継続中・${daysLabel(span)}`);
+    return `<li class="s${e.s}"><span class="dot" aria-hidden="true"></span><span class="st">${STEPS[e.s]}<span class="dur">${dur}</span></span><input type="date" data-log="${e.i}" value="${fmtDate(e.at)}" aria-label="${STEPS[e.s]}になった日"></li>`}).join("");
+  const first=h[0], end=k.status===6?h[h.length-1].at:Date.now();
+  const total=h.length>1||k.status!==first.s?`<span class="sub">記録開始から${daysLabel(end-first.at)}</span>`:"";
+  return `<div class="box"><h3>工程の記録${total}</h3><ul class="log">${rows}</ul><p style="margin:6px 0 0;font-size:12px">日付をタップすると修正できます。</p></div>`;
+}
+function toast(m,ms=2200){const t=$("#toast");t.textContent=m;t.hidden=false;clearTimeout(toast._t);toast._t=setTimeout(()=>t.hidden=true,ms)}
+
+/* ---------- 端末内の保存先（IndexedDB） ---------- */
+const store=(()=>{
+  let dbp=null;
+  function open(){
+    if(dbp)return dbp;
+    dbp=new Promise((res,rej)=>{
+      const r=indexedDB.open("garekichou",1);
+      r.onupgradeneeded=()=>{const d=r.result;if(!d.objectStoreNames.contains("kits"))d.createObjectStore("kits",{keyPath:"id"});if(!d.objectStoreNames.contains("photos"))d.createObjectStore("photos")};
+      r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);
+    });
+    return dbp;
+  }
+  async function tx(name,mode,fn){
+    const d=await open();
+    return new Promise((res,rej)=>{
+      const t=d.transaction(name,mode);const s=t.objectStore(name);let out;
+      const r=fn(s);if(r)r.onsuccess=()=>{out=r.result};
+      t.oncomplete=()=>res(out);t.onerror=()=>rej(t.error);t.onabort=()=>rej(t.error);
+    });
+  }
+  return{
+    allKits:()=>tx("kits","readonly",s=>s.getAll()),
+    putKit:k=>tx("kits","readwrite",s=>s.put(k)).then(r=>{scheduleSync();return r}),
+    putKitRaw:k=>tx("kits","readwrite",s=>s.put(k)),
+    delKit:id=>tx("kits","readwrite",s=>s.delete(id)),
+    clearAll:async()=>{await tx("kits","readwrite",s=>s.clear());await tx("photos","readwrite",s=>s.clear())},
+    getPhoto:id=>tx("photos","readonly",s=>s.get(id)),
+    putPhoto:(id,b)=>tx("photos","readwrite",s=>s.put(b,id)),
+    delPhoto:id=>tx("photos","readwrite",s=>s.delete(id)),
+  };
+})();
+const urls={};
+async function ensureUrls(ids){
+  for(const id of ids){
+    if(urls[id])continue;
+    try{const b=await store.getPhoto(id);if(b)urls[id]=URL.createObjectURL(b)}catch(_){}
+  }
+}
+const src=id=>urls[id]||"";
+async function removePhoto(id){try{await store.delPhoto(id)}catch(_){}if(urls[id]){URL.revokeObjectURL(urls[id]);delete urls[id]}}
+async function askPersist(){try{if(navigator.storage?.persist&&!(await navigator.storage.persisted()))await navigator.storage.persist()}catch(_){}}
+
+let kits=[], loaded=false, filter=ls.get("f")||"all", failed=false;
+async function refresh(){
+  try{
+    kits=(await store.allKits()).filter(k=>!k.deleted).map(k=>({...k,status:Number(k.status)||0}));
+    await ensureUrls(kits.flatMap(k=>k.photos||[]));
+  }catch(e){failed=true}
+  loaded=true;render();
+  if(wide||(curId&&!$("#detail").hidden))renderDetail();
+}
+
+/* ---------- 一覧 ---------- */
+function group(k){return k.status===6?"done":k.status<=1?"todo":"wip"}
+function render(){
+  const total=kits.length, done=kits.filter(k=>k.status===6).length;
+  $("#stock").innerHTML=loaded?`積み <b>${total-done}</b>・完成 <b>${done}</b>`:"読み込み中…";
+  const counts={all:total,todo:0,wip:0,done:0};kits.forEach(k=>counts[group(k)]++);
+  const defs=[["all","すべて"],["todo","未着手"],["wip","作業中"],["done","完成"]];
+  $("#chips").innerHTML=defs.map(([v,l])=>`<button class="chip" data-f="${v}" aria-pressed="${filter===v}">${l}<span class="num">${counts[v]}</span></button>`).join("");
+  const q=$("#q").value.trim().toLowerCase(), sort=$("#sort").value;
+  let rows=kits.filter(k=>filter==="all"||group(k)===filter)
+    .filter(k=>!q||[k.name,k.dealer,k.sculptor,k.event,k.place].join(" ").toLowerCase().includes(q));
+  rows.sort((a,b)=>sort==="name"?(a.name||"").localeCompare(b.name||"","ja"):
+    sort==="new"?(b.bought||"").localeCompare(a.bought||""):(a.bought||"9999").localeCompare(b.bought||"9999"));
+  const list=$("#list");
+  if(!loaded){list.innerHTML="";return}
+  if(failed){list.innerHTML=`<div class="notice">このブラウザでは端末内にデータを保存できませんでした。プライベートブラウズを使っている場合は、通常のタブで開いてください。</div>`;return}
+  let html="";
+  const last=Number(ls.get("lastBackup")||0);
+  if(total&&Date.now()-last>30*864e5)html+=`<div class="remind"><span>${last?"最後のバックアップから30日以上たっています。":"まだバックアップがありません。"}</span><button class="btn" data-open-backup>保存する</button></div>`;
+  if(!total){list.innerHTML=html+`<div class="empty">まだキットがありません。<br>右下の「キットを登録」から、箱の写真と一緒に1つ目を追加しましょう。<br><br>前の機種のバックアップがある場合は、右上の「バックアップ」から読み込めます。</div>`;return}
+  if(!rows.length){list.innerHTML=html+`<div class="empty">条件に合うキットはありません。</div>`;return}
+  list.innerHTML=html+rows.map(k=>{
+    const d=daysSince(k.bought), old=k.status<6&&d!=null&&d>=365;
+    const sub=[k.dealer,k.sculptor&&("原型 "+k.sculptor),k.scale].filter(Boolean).join(" ／ ");
+    const p=k.photos?.[0];
+    return `<button class="card" data-id="${esc(k.id)}" ${wide&&k.id===curId?'aria-current="true"':""}>
+      <div class="thumb">${p&&src(p)?`<img src="${src(p)}" alt="">`:"写真なし"}</div>
+      <div class="meta">
+        <div class="name">${esc(k.name||"名称未入力")}</div>
+        ${sub?`<div class="sub">${esc(sub)}</div>`:""}
+        <div class="row">${pill(k.status)}<span class="age ${old?"old":""}">${ageLabel(k)}</span></div>
+        ${stepsBar(k.status)}
+      </div></button>`}).join("");
+}
+$("#chips").addEventListener("click",e=>{const b=e.target.closest("[data-f]");if(!b)return;filter=b.dataset.f;ls.set("f",filter);render()});
+$("#q").addEventListener("input",render);
+$("#sort").addEventListener("change",()=>{ls.set("s",$("#sort").value);render()});
+$("#list").addEventListener("click",e=>{if(e.target.closest("[data-open-backup]"))return openBackup();const c=e.target.closest(".card");if(c)openDetail(c.dataset.id)});
+$("#fab").addEventListener("click",()=>openEditor(null));
+$("#openBackup").addEventListener("click",()=>{if(sync.linked&&sync.state==="needtap")connect();else openBackup()});
+{const s=ls.get("s");if(s)$("#sort").value=s}
+
+/* ---------- 詳細 ---------- */
+let curId=null;
+const wideMQ=matchMedia("(min-width:960px)");let wide=wideMQ.matches;
+function openDetail(id){curId=id;renderDetail();$("#detail").hidden=false;$("#detail").scrollTop=0;if(wide)render()}
+function closeDetail(){curId=null;if(wide){renderDetail();render()}else $("#detail").hidden=true}
+function onWideChange(){wide=wideMQ.matches;if(wide){$("#detail").hidden=false;renderDetail()}else if(!curId)$("#detail").hidden=true;render()}
+wideMQ.addEventListener?wideMQ.addEventListener("change",onWideChange):wideMQ.addListener(onWideChange);
+function renderOverview(){
+  const el=$("#detail");
+  if(!loaded){el.innerHTML="";return}
+  if(!kits.length){el.innerHTML=`<div class="wrap"><div class="overview"><h2>ようこそ</h2><p class="lead">左下の「キットを登録」から、箱の写真と一緒に1つ目を追加しましょう。前の機種やスマホのバックアップがある場合は、左上の「バックアップ」から読み込めます。</p></div></div>`;return}
+  const cnt=STEPS.map((_,i)=>kits.filter(k=>k.status===i).length);
+  const old=kits.filter(k=>k.status<6&&daysSince(k.bought)!=null).sort((a,b)=>(a.bought||"").localeCompare(b.bought||"")).slice(0,6);
+  el.innerHTML=`<div class="wrap"><div class="overview">
+    <div><h2>積みの状況</h2><p class="lead">左の一覧からキットを選ぶと、ここに詳細が表示されます。<span class="kbd">↑</span> <span class="kbd">↓</span> でも移動できます。</p></div>
+    <div class="stepcount">${STEPS.map((s,i)=>`<div class="${cnt[i]?"":"zero"}"><b>${cnt[i]}</b><span>${s}</span></div>`).join("")}</div>
+    ${old.length?`<div class="box"><h3>長く積んでいるキット</h3><ul class="oldlist">${old.map(k=>{const p=k.photos?.[0];return `<li><button type="button" data-open="${esc(k.id)}"><span class="t">${p&&src(p)?`<img src="${src(p)}" alt="">`:""}</span><span class="n">${esc(k.name)}</span><span class="d">${ageLabel(k)}</span></button></li>`}).join("")}</ul></div>`:""}
+  </div></div>`;
+}
+function renderDetail(){
+  const k=kits.find(x=>x.id===curId);if(!k){if(wide){curId=null;renderOverview()}else closeDetail();return}
+  const fields=[["ディーラー",k.dealer],["原型師",k.sculptor],["スケール",k.scale],["素材",k.material],["入手",k.event],
+    ["購入日",k.bought],["価格",k.price!=null&&k.price!==""?"¥"+Number(k.price).toLocaleString("ja-JP"):""],["保管場所",k.place]].filter(f=>f[1]);
+  const ps=(k.photos||[]).filter(src);
+  $("#detail").innerHTML=`<div class="wrap">
+    <div class="bar"><button class="btn ghost" data-a="close">← 一覧</button><h2>${esc(k.name)}</h2><button class="btn" data-a="edit">編集</button></div>
+    <div class="detail-cols">
+    <div class="gallery">${ps.length?`<img class="main" id="mainph" src="${src(ps[0])}" alt="${esc(k.name)}の写真">${ps.length>1?`<div class="thumbs">${ps.map((p,i)=>`<button type="button" data-ph="${esc(p)}" aria-pressed="${i===0}" aria-label="写真${i+1}を表示"><img src="${src(p)}" alt=""></button>`).join("")}</div>`:""}`:`<div class="none">写真はまだありません</div>`}</div>
+    <div style="display:grid;gap:16px;min-width:0">
+    <div><p class="dname">${esc(k.name||"名称未入力")}</p><div class="row" style="margin-top:6px">${pill(k.status)}<span class="age">${ageLabel(k)}</span></div></div>
+    <div class="advance">${stepsBar(k.status)}
+      <div class="stepnames">${STEPS.map((s,i)=>`<span class="${i===k.status?"cur":""}">${s}</span>`).join("")}</div>
+      <div class="row" style="justify-content:space-between">
+        <button class="btn" data-a="back" ${k.status===0?"disabled":""}>1つ戻す</button>
+        <button class="btn primary" data-a="next" ${k.status===6?"disabled":""}>${k.status===6?"完成済み":"「"+STEPS[k.status+1]+"」に進める"}</button></div>
+    </div>
+    ${logBox(k)}
+    ${fields.length?`<div class="box"><dl>${fields.map(([a,b])=>`<dt>${a}</dt><dd class="${/価格|購入日/.test(a)?"num":""}">${esc(b)}</dd>`).join("")}</dl></div>`:""}
+    ${k.check?`<div class="box"><dl><dt>検品メモ</dt><dd>${esc(k.check)}</dd></dl></div>`:""}
+    ${k.memo?`<div class="box"><dl><dt>メモ</dt><dd>${esc(k.memo)}</dd></dl></div>`:""}
+    <div id="del"><button class="btn danger" data-a="askdel">このキットを削除</button></div>
+    </div></div>
+  </div>`;
+}
+$("#detail").addEventListener("change",async e=>{
+  const inp=e.target.closest("[data-log]");if(!inp||!inp.value)return;
+  const k=kits.find(x=>x.id===curId);if(!k)return;
+  const h=(k.history||[]).slice();const i=+inp.dataset.log;if(!h[i])return;
+  const t=Date.parse(inp.value+"T12:00:00");if(isNaN(t))return;
+  h[i]={...h[i],at:t};
+  try{await store.putKit({...k,history:h,updatedAt:Date.now()});await refresh();toast("日付を直しました")}catch(_){toast("保存できませんでした")}
+});
+$("#detail").addEventListener("click",async e=>{
+  const op=e.target.closest("[data-open]");if(op){openDetail(op.dataset.open);return}
+  const ph=e.target.closest("[data-ph]");if(ph){$("#mainph").src=src(ph.dataset.ph);ph.parentElement.querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed",b===ph));return}
+  const a=e.target.closest("[data-a]")?.dataset.a;if(!a)return;
+  const k=kits.find(x=>x.id===curId);
+  if(a==="close")closeDetail();
+  else if(a==="edit")openEditor(k);
+  else if(a==="next"||a==="back"){const s=Math.min(6,Math.max(0,k.status+(a==="next"?1:-1)));
+    try{await store.putKit({...withStatus(k,s),updatedAt:Date.now()});await refresh();if(a==="next")toast(s===6?"完成おめでとうございます":"「"+STEPS[s]+"」に進めました")}catch(_){toast("更新できませんでした")}}
+  else if(a==="askdel"){$("#del").innerHTML=`<div class="confirm">写真も含めて削除します。元に戻せません。<button class="btn danger" data-a="del">削除する</button><button class="btn ghost" data-a="nodel">やめる</button></div>`}
+  else if(a==="nodel")renderDetail();
+  else if(a==="del"){try{await store.putKit({id:k.id,deleted:true,updatedAt:Date.now()});for(const p of k.photos||[])await removePhoto(p);closeDetail();await refresh();toast("削除しました")}catch(_){toast("削除できませんでした")}}
+});
+
+/* ---------- 登録・編集 ---------- */
+let draft=null, newPhotos=[], removed=[], busy=0;
+function openEditor(k){
+  draft=k?JSON.parse(JSON.stringify(k)):{name:"",dealer:"",sculptor:"",scale:"",material:"レジン",event:"",bought:today(),price:"",status:0,check:"",place:"",memo:"",photos:[]};
+  newPhotos=[];removed=[];renderEditor();$("#editor").hidden=false;$("#editor").scrollTop=0;
+}
+function field(id,label,type="text",ph=""){return `<div class="f"><label for="e-${id}">${label}</label><input id="e-${id}" name="${id}" type="${type}" ${type==="number"?'inputmode="numeric" min="0"':""} placeholder="${ph}" value="${esc(draft[id])}"></div>`}
+function renderEditor(){
+  $("#editor").innerHTML=`<div class="wrap">
+    <div class="bar"><button class="btn ghost" data-a="cancel">キャンセル</button><h2>${draft.id?"キットを編集":"キットを登録"}</h2><button class="btn primary" data-a="save">保存</button></div>
+    <form id="kitform" novalidate>
+      <div class="f"><span class="flabel">写真</span><div class="photos" id="phs"></div></div>
+      <div class="f"><label for="e-name">キット名（必須）</label><input id="e-name" name="name" required value="${esc(draft.name)}" placeholder="例：〇〇 1/7 レジンキャストキット"></div>
+      <div class="two">${field("dealer","ディーラー/メーカー")}${field("sculptor","原型師")}</div>
+      <div class="two">${field("scale","スケール","text","1/7、ノンスケール等")}
+        <div class="f"><label for="e-material">素材</label><select id="e-material" name="material">${MATERIALS.map(m=>`<option ${draft.material===m?"selected":""}>${m}</option>`).join("")}</select></div></div>
+      <div class="two">${field("bought","購入日","date")}${field("price","価格（円）","number")}</div>
+      ${field("event","入手イベント・店","text","WF2026夏、通販 など")}
+      <div class="f"><span class="flabel">工程</span><div class="seg" id="seg">${STEPS.map((s,i)=>`<button type="button" data-s="${i}" aria-pressed="${draft.status===i}">${s}</button>`).join("")}</div></div>
+      ${field("place","保管場所","text","押し入れ上段・箱3 など")}
+      <div class="f"><label for="e-check">検品メモ</label><textarea id="e-check" name="check" placeholder="欠品・気泡・歪み、交換依頼の期限など">${esc(draft.check)}</textarea></div>
+      <div class="f"><label for="e-memo">メモ</label><textarea id="e-memo" name="memo" placeholder="塗装プラン、改造アイデアなど">${esc(draft.memo)}</textarea></div>
+      <p class="err" id="ferr" hidden></p>
+    </form></div>`;
+  renderPhotos();
+}
+function renderPhotos(){
+  const el=$("#phs");if(!el)return;
+  el.innerHTML=draft.photos.map((p,i)=>`<div class="ph"><img src="${src(p)}" alt=""><button type="button" data-rm="${i}" aria-label="写真を外す">×</button></div>`).join("")
+    +Array.from({length:busy},()=>`<div class="ph up">取り込み中…</div>`).join("")
+    +`<div class="addph"><span aria-hidden="true">＋ 写真を追加<br>（複数可）</span><input id="e-file" type="file" accept="image/*" multiple aria-label="写真を追加"></div>`;
+}
+function readForm(){const f=$("#kitform");for(const n of ["name","dealer","sculptor","scale","material","event","bought","price","place","check","memo"]){draft[n]=f.elements[n].value.trim()}draft.price=draft.price===""?"":Number(draft.price)}
+async function shrink(file){
+  try{
+    const url=URL.createObjectURL(file);const img=new Image();img.src=url;await img.decode();
+    const max=1600, s=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight));
+    const c=document.createElement("canvas");c.width=Math.round(img.naturalWidth*s);c.height=Math.round(img.naturalHeight*s);
+    c.getContext("2d").drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(url);
+    const b=await new Promise(r=>c.toBlob(r,"image/jpeg",.85));return b||file;
+  }catch(_){return file}
+}
+$("#editor").addEventListener("change",async e=>{
+  if(e.target.id!=="e-file")return;readForm();
+  const files=[...e.target.files];busy+=files.length;renderPhotos();
+  for(const f of files){
+    try{const b=await shrink(f);const id=uid();await store.putPhoto(id,b);urls[id]=URL.createObjectURL(b);draft.photos.push(id);newPhotos.push(id)}
+    catch(_){toast("写真を取り込めませんでした。端末の空き容量を確認してください")}
+    busy--;renderPhotos();
+  }
+});
+$("#editor").addEventListener("click",async e=>{
+  const s=e.target.closest("[data-s]");if(s){draft.status=+s.dataset.s;$("#seg").querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed",b===s));return}
+  const rm=e.target.closest("[data-rm]");if(rm){readForm();removed.push(draft.photos.splice(+rm.dataset.rm,1)[0]);renderPhotos();return}
+  const a=e.target.closest("[data-a]")?.dataset.a;
+  if(a==="cancel"){for(const p of newPhotos)await removePhoto(p);$("#editor").hidden=true}
+  if(a==="save")save();
+});
+$("#editor").addEventListener("submit",e=>{e.preventDefault();save()});
+async function save(){
+  readForm();const err=$("#ferr");
+  if(!draft.name){err.textContent="キット名を入力してください。";err.hidden=false;$("#e-name").focus();return}
+  if(busy){err.textContent="写真の取り込みが終わるまでお待ちください。";err.hidden=false;return}
+  const isNew=!draft.id;
+  let k={...draft,id:draft.id||uid(),updatedAt:Date.now(),createdAt:draft.createdAt||Date.now()};
+  if(isNew)k.history=[{s:k.status,at:Date.now()}];
+  else{const prev=kits.find(x=>x.id===k.id);if(prev&&prev.status!==k.status)k={...withStatus(prev,k.status),...k,status:k.status,history:withStatus(prev,k.status).history}}
+  try{
+    await store.putKit(k);
+    for(const p of removed)await removePhoto(p);
+    $("#editor").hidden=true;await refresh();toast(isNew?"登録しました":"保存しました");
+    if(isNew)askPersist();
+  }catch(_){err.textContent="保存できませんでした。端末の空き容量を確認してもう一度お試しください。";err.hidden=false}
+}
+
+/* ---------- バックアップ（機種変更用） ---------- */
+function blobToDataURL(b){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=()=>rej(r.error);r.readAsDataURL(b)})}
+async function dataURLToBlob(u){const r=await fetch(u);return r.blob()}
+function fmtBytes(n){return n>1048576?(n/1048576).toFixed(1)+" MB":Math.ceil(n/1024)+" KB"}
+async function openBackup(){
+  const last=Number(ls.get("lastBackup")||0);
+  let usage="";
+  try{const e=await navigator.storage?.estimate?.();if(e?.usage)usage=`このアプリが使っている容量：約${fmtBytes(e.usage)}`}catch(_){}
+  $("#backup").innerHTML=`<div class="wrap">
+    <div class="bar"><button class="btn ghost" data-b="close">← 一覧</button><h2>${CLIENT_ID?"同期とバックアップ":"バックアップ・機種変更"}</h2><span style="width:60px"></span></div>
+    ${CLIENT_ID?`<div class="box" id="syncbox"></div>`:""}
+    <div class="box"><h3>バックアップを保存</h3>
+      <p>キット${kits.length}件と写真をまとめて1つのファイルにします。iCloud Drive、Googleドライブ、パソコンなど、スマホ以外の場所にも保存しておくと安心です。<br>${last?"前回の保存："+ymd(new Date(last)):"まだ保存していません"}</p>
+      <button class="btn primary wide" data-b="export" ${kits.length?"":"disabled"}>バックアップファイルを作る</button>
+      <p id="exmsg" style="margin:8px 0 0"></p></div>
+    <div class="box"><h3>バックアップから読み込む</h3>
+      <p>新しいスマホでこのアプリを開き、前の機種で作ったファイルを選びます。同じキットは上書きされ、今あるほかのキットはそのまま残ります。</p>
+      <label class="filepick btn wide" style="text-align:center">ファイルを選んで読み込む<input id="b-file" type="file" accept=".json,application/json" aria-label="バックアップファイルを選ぶ"></label>
+      <p id="immsg" style="margin:8px 0 0"></p></div>
+    <div class="box"><h3>機種変更の手順</h3>
+      <p style="margin:0">1. 前のスマホで「バックアップファイルを作る」<br>2. ファイルをクラウドかAirDrop・メールなどで新しいスマホへ送る<br>3. 新しいスマホでこのアプリを開き、ホーム画面に追加<br>4. 「ファイルを選んで読み込む」で取り込む<br><br>iPhoneとAndroidの間でも同じファイルで移せます。${CLIENT_ID?"Googleドライブで同期している場合は、新しい端末で同じアカウントにログインするだけで移せます。":""}${usage?"<br><br>"+usage:""}</p></div>
+    <p class="legal"><a href="privacy.html">プライバシーポリシー</a><a href="terms.html">利用規約</a></p>
+  </div>`;
+  renderSyncBox();
+  $("#backup").hidden=false;$("#backup").scrollTop=0;
+}
+$("#backup").addEventListener("click",async e=>{
+  const a=e.target.closest("[data-b]")?.dataset.b;
+  if(a==="close"){$("#backup").hidden=true;render()}
+  if(a==="export")exportBackup(e.target.closest("button"));
+  if(a==="login")connect();
+  if(a==="syncnow"){if(sync.token&&Date.now()<sync.exp)runSync();else connect()}
+  if(a==="logout"){logout(false)}
+  if(a==="askwipe"){sync.confirmWipe=true;renderSyncBox()}
+  if(a==="nowipe"){sync.confirmWipe=false;renderSyncBox()}
+  if(a==="wipe"){logout(true)}
+  if(a==="sw-merge"){finishLink(sync.pendingEmail,false)}
+  if(a==="sw-replace"){finishLink(sync.pendingEmail,true)}
+  if(a==="sw-cancel"){sync.pendingEmail="";sync.token=null;sync.state="idle";updateSyncUI()}
+});
+$("#backup").addEventListener("change",e=>{if(e.target.id==="b-file"&&e.target.files[0])importBackup(e.target.files[0],e.target)});
+async function exportBackup(btn){
+  const msg=$("#exmsg");btn.disabled=true;msg.textContent="ファイルを作成中…";
+  try{
+    const photos={};
+    for(const k of kits)for(const id of k.photos||[]){if(photos[id])continue;const b=await store.getPhoto(id);if(b)photos[id]=await blobToDataURL(b)}
+    const data={app:"garekichou",version:1,exportedAt:new Date().toISOString(),kits,photos};
+    const name=`garekichou-backup-${today().replace(/-/g,"")}.json`;
+    const file=new File([JSON.stringify(data)],name,{type:"application/json"});
+    let done=false;
+    const ios=/iPhone|iPad|iPod/.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
+    if(ios&&navigator.canShare?.({files:[file]})){
+      try{await navigator.share({files:[file],title:"ガレキ積み帳のバックアップ"});done=true}
+      catch(err){if(err?.name==="AbortError"){msg.textContent="保存をやめました。";btn.disabled=false;return}}
+    }
+    if(!done){
+      const u=URL.createObjectURL(file);const a=document.createElement("a");a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();
+      setTimeout(()=>URL.revokeObjectURL(u),60000);
+    }
+    ls.set("lastBackup",String(Date.now()));
+    msg.textContent=`${name}（${fmtBytes(file.size)}）を作成しました。${ios?"「ファイルに保存」でiCloud Driveなどに保存してください。":"ダウンロードフォルダを確認してください。"}`;
+  }catch(err){msg.textContent="ファイルを作れませんでした。写真が多い場合は端末の空き容量を確認してください。"}
+  btn.disabled=false;
+}
+async function importBackup(file,input){
+  const msg=$("#immsg");msg.textContent="読み込み中…";
+  try{
+    const data=JSON.parse(await file.text());
+    if(data?.app!=="garekichou"||!Array.isArray(data.kits))throw new Error("format");
+    let n=0,p=0;
+    for(const [id,u] of Object.entries(data.photos||{})){if(typeof u!=="string"||!u.startsWith("data:image/"))continue;await store.putPhoto(id,await dataURLToBlob(u));if(urls[id]){URL.revokeObjectURL(urls[id]);delete urls[id]}p++}
+    const cur=new Map((await store.allKits()).map(k=>[k.id,k]));
+    for(const k of data.kits){if(!k||typeof k.id!=="string"||k.deleted)continue;const c=cur.get(k.id);
+      const updatedAt=!c||c.deleted?Date.now():Math.max(Number(k.updatedAt)||0,0);
+      if(c&&!c.deleted&&(Number(c.updatedAt)||0)>updatedAt){n++;continue}
+      await store.putKit({...k,photos:Array.isArray(k.photos)?k.photos:[],updatedAt});n++}
+    await refresh();askPersist();
+    msg.textContent=`キット${n}件、写真${p}枚を読み込みました。`;
+    toast("バックアップを読み込みました");
+  }catch(err){msg.textContent=err?.message==="format"?"ガレキ積み帳のバックアップファイルではないようです。ファイルを確認してください。":"読み込めませんでした。ファイルが壊れていないか、端末の空き容量が足りているか確認してください。"}
+  input.value="";
+}
+
+/* ---------- Googleドライブ同期 ---------- */
+/* 各利用者が自分のGoogleアカウントでログインし、その人のドライブの「ガレキ積み帳」フォルダに保存する。
+   権限は drive.file（このアプリが作ったファイルだけ）に限定。アクセストークンはメモリにだけ置く。 */
+const CLIENT_ID="";  // Google CloudのOAuthクライアントID（〜.apps.googleusercontent.com）
+const DRIVE_SCOPE="https://www.googleapis.com/auth/drive.file";
+const SCOPES=DRIVE_SCOPE+" openid https://www.googleapis.com/auth/userinfo.email";
+const FOLDER_NAME="ガレキ積み帳", KITS_FILE="kits.json", PHOTO_PREFIX="photo-";
+const API="https://www.googleapis.com/drive/v3/", UPLOAD="https://www.googleapis.com/upload/drive/v3/";
+const sync={token:null,exp:0,email:ls.get("g_email")||"",linked:ls.get("g_linked")==="1",state:"idle",last:Number(ls.get("g_last")||0),err:"",running:false,again:false,pendingEmail:"",confirmWipe:false,timer:0};
+if(sync.linked)sync.state="needtap";
+const lsDel=k=>{try{localStorage.removeItem(k)}catch(_){}};
+const hm=t=>{const d=new Date(t);return (ymd(d)===today()?"":`${d.getMonth()+1}/${d.getDate()} `)+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0")};
+
+function updateSyncUI(){
+  const b=$("#openBackup");
+  if(!CLIENT_ID||!sync.linked){b.textContent="バックアップ";b.dataset.state=""}
+  else{
+    const t={needtap:"タップして同期",syncing:"同期中…",ok:"同期済み",error:"同期エラー",idle:"同期"}[sync.state]||"同期";
+    b.textContent=t;b.dataset.state=sync.state;
+  }
+  if(!$("#backup").hidden)renderSyncBox();
+}
+function renderSyncBox(){
+  const el=$("#syncbox");if(!el)return;
+  const legal=`<p class="small">データはあなたのGoogleドライブの「${FOLDER_NAME}」フォルダにだけ保存され、作者を含むほかの人からは見えません。このアプリが作ったファイル以外にはアクセスしません。</p>`;
+  if(sync.pendingEmail){
+    el.innerHTML=`<h3>アカウントが変わりました</h3>
+      <p>この端末には、前に <b>${esc(sync.email)}</b> で使っていたキットが${kits.length}件あります。<b>${esc(sync.pendingEmail)}</b> でどうしますか？</p>
+      <div class="stack"><button class="btn primary wide" data-b="sw-replace">この端末のキットを消して、${esc(sync.pendingEmail)} の内容を読み込む</button>
+      <button class="btn wide" data-b="sw-merge">この端末のキットも ${esc(sync.pendingEmail)} のドライブに入れる</button>
+      <button class="btn ghost wide" data-b="sw-cancel">やめる</button></div>`;
+    return;
+  }
+  if(!sync.linked){
+    el.innerHTML=`<h3>Googleドライブで同期</h3>
+      <p>Googleアカウントでログインすると、スマホやPCなど同じアカウントの端末どうしで、キットと写真が同じ内容になります。</p>
+      <button class="btn primary wide" data-b="login">Googleでログインして同期</button>
+      <p class="small" id="syncmsg">${esc(sync.err)}</p>${legal}`;
+    return;
+  }
+  const status={needtap:"同期するには下のボタンを押してください（1時間ごとにログインの確認が必要です）",syncing:"同期しています…",ok:`同期済み（${sync.last?hm(sync.last):""}）`,error:"同期できませんでした",idle:""}[sync.state]||"";
+  el.innerHTML=`<h3>Googleドライブで同期</h3>
+    <p><b>${esc(sync.email)}</b> で同期しています。<br>${esc(status)}</p>
+    ${sync.err?`<p class="err">${esc(sync.err)}</p>`:""}
+    <button class="btn primary wide" data-b="syncnow" ${sync.state==="syncing"?"disabled":""}>今すぐ同期</button>
+    <div class="row" style="margin-top:10px">
+      <button class="btn" data-b="logout">ログアウト</button>
+      ${sync.confirmWipe?`<span class="confirm">この端末のキットと写真を消します（ドライブには残ります）。<button class="btn danger" data-b="wipe">消してログアウト</button><button class="btn ghost" data-b="nowipe">やめる</button></span>`:`<button class="btn danger" data-b="askwipe">ログアウトしてこの端末のデータを消す</button>`}
+    </div>${legal}`;
+}
+
+function gisReady(){return !!(window.google&&google.accounts&&google.accounts.oauth2)}
+function requestToken(prompt,hint){
+  return new Promise((res,rej)=>{
+    if(!gisReady())return rej({type:"gis"});
+    const tc=google.accounts.oauth2.initTokenClient({client_id:CLIENT_ID,scope:SCOPES,login_hint:hint||undefined,
+      callback:r=>{
+        if(r.error)return rej({type:r.error});
+        if(!google.accounts.oauth2.hasGrantedAllScopes(r,DRIVE_SCOPE))return rej({type:"scope"});
+        sync.token=r.access_token;sync.exp=Date.now()+(Number(r.expires_in)||3600)*1000-60000;res(r);
+      },
+      error_callback:e=>rej({type:e?.type||"popup"})});
+    tc.requestAccessToken({prompt});
+  });
+}
+function authMsg(e){
+  const t=e?.type;
+  if(t==="gis")return "Googleのログイン機能を読み込めませんでした。通信状況を確認して、ページを開き直してください。";
+  if(t==="popup_closed"||t==="access_denied")return "ログインをやめました。";
+  if(t==="popup_failed_to_open")return "ログイン画面を開けませんでした。ホーム画面から開いている場合は、SafariやChromeでこのページを開いてログインしてください。";
+  if(t==="scope")return "「Googleドライブのファイル」へのアクセスにチェックを入れて、もう一度ログインしてください。";
+  return "ログインできませんでした。もう一度お試しください。";
+}
+async function api(url,opt={}){
+  if(!sync.token||Date.now()>sync.exp)throw {type:"auth"};
+  const r=await fetch(url,{...opt,headers:{...(opt.headers||{}),Authorization:"Bearer "+sync.token}});
+  if(r.status===401){sync.token=null;throw {type:"auth"}}
+  if(!r.ok)throw {type:"http",status:r.status};
+  return r;
+}
+const q=s=>encodeURIComponent(s);
+async function connect(){
+  if(!CLIENT_ID)return;
+  sync.err="";
+  try{await requestToken(sync.linked?"":"consent",sync.email)}
+  catch(e){sync.err=authMsg(e);if(sync.linked)sync.state="needtap";updateSyncUI();if(!$("#backup").hidden){}else toast(sync.err,4000);return}
+  let email="";
+  try{const r=await api("https://www.googleapis.com/oauth2/v3/userinfo");email=(await r.json()).email||""}
+  catch(e){sync.err="アカウント情報を取得できませんでした。";sync.state="error";updateSyncUI();return}
+  const prev=ls.get("g_email");
+  if(prev&&email&&prev!==email&&kits.length){sync.pendingEmail=email;if($("#backup").hidden)openBackup();else updateSyncUI();return}
+  finishLink(email,false);
+}
+async function finishLink(email,wipe){
+  if(wipe){await store.clearAll();for(const id of Object.keys(urls)){URL.revokeObjectURL(urls[id]);delete urls[id]}await refresh()}
+  if(sync.email!==email)lsDel("g_folder");
+  sync.pendingEmail="";sync.email=email;sync.linked=true;
+  ls.set("g_email",email);ls.set("g_linked","1");
+  await runSync();
+}
+async function logout(wipe){
+  try{if(sync.token&&gisReady())google.accounts.oauth2.revoke(sync.token,()=>{})}catch(_){}
+  sync.token=null;sync.linked=false;sync.state="idle";sync.err="";sync.confirmWipe=false;
+  lsDel("g_linked");
+  if(wipe){await store.clearAll();for(const id of Object.keys(urls)){URL.revokeObjectURL(urls[id]);delete urls[id]}lsDel("g_email");lsDel("g_folder");lsDel("g_last");sync.email="";await refresh();toast("ログアウトして、この端末のデータを消しました")}
+  else toast("ログアウトしました。この端末のデータは残っています");
+  updateSyncUI();
+}
+function scheduleSync(){
+  if(!CLIENT_ID||!sync.linked||sync.pendingEmail)return;
+  clearTimeout(sync.timer);
+  if(!sync.token||Date.now()>sync.exp){sync.state="needtap";updateSyncUI();return}
+  sync.timer=setTimeout(runSync,1500);
+}
+async function folderId(){
+  const c=ls.get("g_folder");if(c)return c;
+  const r=await api(API+"files?spaces=drive&orderBy=createdTime&fields=files(id)&q="+q(`name='${FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`));
+  let id=(await r.json()).files?.[0]?.id;
+  if(!id){const c2=await api(API+"files?fields=id",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:FOLDER_NAME,mimeType:"application/vnd.google-apps.folder"})});id=(await c2.json()).id}
+  ls.set("g_folder",id);return id;
+}
+async function listFolder(fid){
+  const out={};let tok="";
+  do{
+    const r=await api(API+`files?pageSize=1000&fields=nextPageToken,files(id,name,createdTime)&q=${q(`'${fid}' in parents and trashed=false`)}`+(tok?"&pageToken="+q(tok):""));
+    const j=await r.json();for(const f of j.files||[])if(!out[f.name])out[f.name]=f;tok=j.nextPageToken||"";
+  }while(tok);
+  return out;
+}
+function multipart(meta,blob){
+  const b="garekichou"+uid().replace(/-/g,"");
+  return {headers:{"Content-Type":"multipart/related; boundary="+b},
+    body:new Blob([`--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${b}\r\nContent-Type: ${blob.type||"application/octet-stream"}\r\n\r\n`,blob,`\r\n--${b}--`])};
+}
+async function runSync(){
+  if(!CLIENT_ID||!sync.linked)return;
+  if(sync.running){sync.again=true;return}
+  if(!sync.token||Date.now()>sync.exp){sync.state="needtap";updateSyncUI();return}
+  sync.running=true;sync.state="syncing";sync.err="";updateSyncUI();
+  let localChanged=false;
+  try{
+    let fid;
+    try{fid=await folderId();var files=await listFolder(fid)}
+    catch(e){if(e.type==="http"&&e.status===404){lsDel("g_folder");fid=await folderId();files=await listFolder(fid)}else throw e}
+    let remote=[];const kf=files[KITS_FILE];
+    if(kf){const r=await api(API+`files/${kf.id}?alt=media`);const j=await r.json();if(Array.isArray(j.kits))remote=j.kits.filter(k=>k&&typeof k.id==="string")}
+    const local=await store.allKits();
+    const L=new Map(local.map(k=>[k.id,k])),R=new Map(remote.map(k=>[k.id,k]));
+    const merged=[];
+    for(const id of new Set([...L.keys(),...R.keys()])){
+      const l=L.get(id),r=R.get(id);
+      const pick=!r?l:!l?r:((Number(r.updatedAt)||0)>(Number(l.updatedAt)||0)?r:l);
+      merged.push(pick);
+      if(pick!==l){
+        await store.putKitRaw(pick);localChanged=true;
+        if(pick.deleted&&l)for(const p of l.photos||[])await removePhoto(p);
+      }
+    }
+    const need=new Set(merged.filter(k=>!k.deleted).flatMap(k=>k.photos||[]));
+    for(const id of need){
+      const name=PHOTO_PREFIX+id, rf=files[name];
+      const lb=await store.getPhoto(id);
+      if(!lb&&rf){const r=await api(API+`files/${rf.id}?alt=media`);await store.putPhoto(id,await r.blob());localChanged=true}
+      else if(lb&&!rf){const m=multipart({name,parents:[fid]},lb);await api(UPLOAD+"files?uploadType=multipart&fields=id",{method:"POST",...m})}
+    }
+    for(const [name,f] of Object.entries(files)){
+      if(!name.startsWith(PHOTO_PREFIX))continue;
+      const id=name.slice(PHOTO_PREFIX.length);
+      if(!need.has(id)&&Date.now()-Date.parse(f.createdTime||0)>DAY){try{await api(API+`files/${f.id}`,{method:"DELETE"})}catch(_){}}
+    }
+    const sortK=a=>a.slice().sort((x,y)=>x.id<y.id?-1:1);
+    const same=JSON.stringify(sortK(remote))===JSON.stringify(sortK(merged));
+    if(!same||!kf){
+      const blob=new Blob([JSON.stringify({app:"garekichou",version:1,updatedAt:Date.now(),kits:merged})],{type:"application/json"});
+      if(kf)await api(UPLOAD+`files/${kf.id}?uploadType=media`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:blob});
+      else{const m=multipart({name:KITS_FILE,parents:[fid],mimeType:"application/json"},blob);await api(UPLOAD+"files?uploadType=multipart&fields=id",{method:"POST",...m})}
+    }
+    sync.last=Date.now();ls.set("g_last",String(sync.last));sync.state="ok";
+  }catch(e){
+    if(e?.type==="auth"){sync.state="needtap"}
+    else{sync.state="error";sync.err=e?.type==="http"?`Googleドライブとの通信でエラーが起きました（${e.status}）。時間を置いて「今すぐ同期」を押してください。`:"通信できませんでした。電波のある場所で「今すぐ同期」を押してください。"}
+  }finally{
+    sync.running=false;updateSyncUI();
+    if(localChanged)await refresh();
+    if(sync.again){sync.again=false;runSync()}
+  }
+}
+document.addEventListener("visibilitychange",()=>{
+  if(document.visibilityState!=="visible"||!sync.linked)return;
+  if(sync.token&&Date.now()<sync.exp){if(Date.now()-sync.last>60000)runSync()}
+  else{sync.state="needtap";updateSyncUI()}
+});
+
+/* ---------- 起動 ---------- */
+document.addEventListener("keydown",e=>{
+  if(e.target.closest("input,textarea,select"))return;
+  if(e.key==="Escape"){
+    if(!$("#editor").hidden){$("#editor [data-a=cancel]")?.click();return}
+    if(!$("#backup").hidden){$("#backup").hidden=true;render();return}
+    if(curId)closeDetail();return;
+  }
+  if(!wide||!$("#editor").hidden||!$("#backup").hidden)return;
+  if(e.key==="ArrowDown"||e.key==="ArrowUp"){
+    const ids=[...document.querySelectorAll("#list .card")].map(c=>c.dataset.id);if(!ids.length)return;
+    e.preventDefault();let i=ids.indexOf(curId);i=i<0?0:Math.max(0,Math.min(ids.length-1,i+(e.key==="ArrowDown"?1:-1)));
+    openDetail(ids[i]);document.querySelector(`#list .card[data-id="${CSS.escape(ids[i])}"]`)?.scrollIntoView({block:"nearest"});
+  }
+});
+if(wide)$("#detail").hidden=false;
+updateSyncUI();
+render();
+if(!("indexedDB" in window)){failed=true;loaded=true;render()}else refresh();
+if("serviceWorker" in navigator&&location.protocol==="https:")navigator.serviceWorker.register("sw.js").catch(()=>{});

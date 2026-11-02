@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; object-src 'none'; base-uri 'none'">
+<title>プライバシーポリシー｜ガレキ積み帳</title>
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=Zen+Kaku+Gothic+New:wght@400;700&display=swap">
+<link rel="stylesheet" href="legal.css">
+</head>
+<body>
+<main>
+  <a class="back" href="./">← ガレキ積み帳に戻る</a>
+  <h1><span>ガレキ積み帳</span>プライバシーポリシー</h1>
+  <p class="meta">制定日：2026年11月3日</p>
+  <p class="lead">ガレキ積み帳（以下「本アプリ」）の作者（GitHub：creat4ro、以下「作者」）は、利用者の情報を次のとおり取り扱います。本アプリは作者のサーバーを持たず、作者が利用者のデータを受け取ったり見たりすることはありません。</p>
+
+  <section>
+    <h2>1. 本アプリが扱う情報</h2>
+    <ul>
+      <li>利用者が入力したキットの情報（キット名、ディーラー、原型師、購入日、価格、保管場所、メモ、工程の記録など）</li>
+      <li>利用者が追加した写真（取り込み時に縮小して保存し、撮影場所などの位置情報は含めません）</li>
+      <li>Googleドライブで同期する場合：Googleアカウントのメールアドレス（どのアカウントで同期しているかを画面に表示するためだけに使います）</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>2. 情報の保存場所</h2>
+    <ul>
+      <li><b>利用者の端末</b>：入力した情報と写真は、利用者の端末のブラウザ内（IndexedDB）に保存されます。</li>
+      <li><b>利用者のGoogleドライブ</b>（同期を使う場合のみ）：利用者自身のGoogleドライブに本アプリが作る「ガレキ積み帳」フォルダに、キットの情報（kits.json）と写真が保存されます。</li>
+    </ul>
+    <p>作者や第三者のサーバーに、これらの情報が送られることはありません。</p>
+  </section>
+
+  <section>
+    <h2>3. Googleのユーザーデータの取り扱い</h2>
+    <p>本アプリは、Googleアカウントでのログイン時に次の権限を求めます。</p>
+    <ul>
+      <li><b>Googleドライブのファイル（drive.file）</b>：本アプリが作成したフォルダとファイルの作成・読み込み・更新・削除にのみ使います。本アプリが作成していないドライブ上のファイルにはアクセスできません。</li>
+      <li><b>メールアドレス（openid、email）</b>：同期中のアカウントを画面に表示するためにのみ使います。</li>
+    </ul>
+    <p>Googleから受け取るアクセストークンは、アプリを開いている間だけ端末のメモリ上で使い、保存しません。Googleから受け取った情報を、広告、分析、販売、そのほか同期以外の目的に使うことはなく、第三者に提供することもありません。人がその内容を読むこともありません。</p>
+    <p>本アプリによるGoogle APIから受け取った情報の使用および他のアプリへの転送は、<a href="https://developers.google.com/terms/api-services-user-data-policy" rel="noopener">Google API サービスのユーザーデータに関するポリシー</a>（限定的使用の要件を含む）に準拠します。</p>
+  </section>
+
+  <section>
+    <h2>4. 外部サービスとの通信</h2>
+    <p>本アプリを表示・利用するとき、次のサービスと通信します。これらのサービスは、通信の際に利用者のIPアドレスなどを受け取ることがあり、それぞれの方針に従って取り扱われます。</p>
+    <ul>
+      <li>GitHub Pages（本アプリのファイルの配信）</li>
+      <li>Google Fonts（画面に使う文字の配信）</li>
+      <li>Googleのログイン機能とGoogle Drive API（同期を使う場合）</li>
+    </ul>
+    <p>本アプリは、アクセス解析、広告、Cookieによる追跡を行いません。</p>
+  </section>
+
+  <section>
+    <h2>5. 情報の削除と連携の解除</h2>
+    <ul>
+      <li>キットは、アプリの詳細画面の「このキットを削除」で削除できます。同期中は、ドライブ上のデータからも削除されます。</li>
+      <li>「ログアウトしてこの端末のデータを消す」で、その端末に保存された情報をすべて消せます。</li>
+      <li>Googleドライブ上のデータは、ドライブの「ガレキ積み帳」フォルダを削除すると消せます。</li>
+      <li>本アプリとGoogleアカウントの連携は、<a href="https://myaccount.google.com/connections" rel="noopener">Googleアカウントの「サードパーティ製のアプリとサービス」</a>からいつでも解除できます。</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>6. 安全のための取り組み</h2>
+    <p>本アプリは、ドライブへのアクセス権限を本アプリが作成したファイルだけに限り、読み込めるプログラムを本アプリ自身とGoogleのログイン機能に制限しています。端末内のデータは端末のロックで、ドライブ上のデータはGoogleアカウントの保護で守られます。Googleアカウントの2段階認証を有効にすることをおすすめします。</p>
+  </section>
+
+  <section>
+    <h2>7. このポリシーの変更</h2>
+    <p>本ポリシーを変更する場合は、このページで内容と変更日をお知らせします。</p>
+  </section>
+
+  <section>
+    <h2>8. お問い合わせ</h2>
+    <p>本ポリシーや本アプリについてのお問い合わせは、<a href="https://github.com/creat4ro/garekichou/issues" rel="noopener">GitHubのIssues</a>からお願いします。</p>
+  </section>
+</main>
+</body>
+</html>
