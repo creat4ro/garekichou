@@ -1,9 +1,38 @@
 "use strict";
-const STEPS_GK=["未開封","検品済","洗浄","仮組","サフ","塗装","完成"];
-const STEPS_PM=["未開封","パーツ確認","仮組","表面処理","サフ","塗装","完成"];
-const STEPS=STEPS_GK;
+/* 作り方（コース）ごとの工程。最後の工程は必ず「完成」。
+   以前のプラモ（作り方なし）は、当時の工程と同じ「全塗装」として扱う。 */
+const COURSES={
+  gk:     {label:"ガレキ",           steps:["未開封","検品済","洗浄","仮組","サフ","塗装","完成"]},
+  suguri: {label:"素組み",           steps:["未開封","パーツ確認","組立","完成"]},
+  bubun:  {label:"部分塗装・スミ入れ", steps:["未開封","パーツ確認","組立","スミ入れ・部分塗装","トップコート","完成"]},
+  zentoso:{label:"全塗装",           steps:["未開封","パーツ確認","仮組","表面処理","サフ","塗装","完成"]},
+  kaizo:  {label:"改造",             steps:["未開封","パーツ確認","仮組","改造","表面処理","サフ","塗装","完成"]},
+};
+const PM_COURSES=["suguri","bubun","zentoso","kaizo"];
+const STEPS=COURSES.gk.steps;
 const isPM=k=>k?.kind==="plamo";
-const stepsOf=k=>isPM(k)?STEPS_PM:STEPS_GK;
+const courseOf=k=>isPM(k)?(PM_COURSES.includes(k.course)?k.course:"zentoso"):"gk";
+const stepsOf=k=>COURSES[courseOf(k)].steps;
+const lastStep=k=>stepsOf(k).length-1;
+const isDone=k=>k.status>=lastStep(k);
+const STEP_ALIAS={"検品済":"パーツ確認","パーツ確認":"検品済","組立":"仮組","仮組":"組立"};
+/* 種類や作り方を変えたとき、今の工程と記録を名前で新しい工程に合わせる。
+   同じ名前がなければ、それより前の工程で新しい工程にもあるものに合わせる（未開封は全コース共通） */
+function mapStep(oldSteps,i,newSteps){
+  for(let j=Math.min(i,oldSteps.length-1);j>=0;j--){
+    const n=oldSteps[j];let x=newSteps.indexOf(n);if(x<0&&STEP_ALIAS[n])x=newSteps.indexOf(STEP_ALIAS[n]);
+    if(j===oldSteps.length-1)return newSteps.length-1;
+    if(x>=0)return Math.min(x,newSteps.length-2);
+  }
+  return 0;
+}
+function changeCourse(k,kind,course){
+  const from=stepsOf(k);const nk={...k,kind,course:kind==="plamo"?course:undefined};const to=stepsOf(nk);
+  if(from===to)return nk;
+  nk.status=mapStep(from,Number(k.status)||0,to);
+  nk.history=(k.history||[]).map(e=>{const n=e.n||from[e.s];let x=to.indexOf(n);if(x<0&&STEP_ALIAS[n])x=to.indexOf(STEP_ALIAS[n]);return {...e,n,s:x}});
+  return nk;
+}
 const KINDS=[["gk","ガレキ"],["plamo","プラモ"]];
 const MATERIALS=["レジン（キャスト）","レジン（3Dプリント）","ソフビ","メタル","その他"];
 const $=s=>document.querySelector(s);
@@ -13,9 +42,9 @@ const ymd=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+Stri
 const today=()=>ymd(new Date());
 const ls={get(k){try{return localStorage.getItem(k)}catch(_){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(_){}}};
 function daysSince(s){if(!s)return null;const t=Date.parse(s+"T00:00:00");if(isNaN(t))return null;return Math.max(0,Math.floor((Date.now()-t)/864e5))}
-function ageLabel(k){if(k.status===6)return "完成";if(!k.bought)return "購入日不明";const d=daysSince(k.bought);if(d==null)return "";if(d>=365)return "積み "+Math.floor(d/365)+"年"+Math.floor(d%365/30)+"ヶ月";if(d>=30)return "積み "+Math.floor(d/30)+"ヶ月";return "積み "+d+"日"}
-function stepsBar(n){return `<div class="steps${n===6?" done":""}" aria-hidden="true">${STEPS.map((_,i)=>`<i class="${i<=n?"on":""}"></i>`).join("")}</div>`}
-function pill(k){const n=k.status;return `<span class="pill ${n===6?"s6":n>=2?"wip":""}">${stepsOf(k)[n]}</span>`}
+function ageLabel(k){if(isDone(k))return "完成";if(!k.bought)return "購入日不明";const d=daysSince(k.bought);if(d==null)return "";if(d>=365)return "積み "+Math.floor(d/365)+"年"+Math.floor(d%365/30)+"ヶ月";if(d>=30)return "積み "+Math.floor(d/30)+"ヶ月";return "積み "+d+"日"}
+function stepsBar(n,len=7){const done=n>=len-1;return `<div class="steps${done?" done":""}" style="grid-template-columns:repeat(${len},1fr)" aria-hidden="true">${Array.from({length:len},(_,i)=>`<i class="${i<=n?"on":""}"></i>`).join("")}</div>`}
+function pill(k){const n=k.status;return `<span class="pill ${isDone(k)?"s6":n>=2?"wip":""}">${stepsOf(k)[n]??""}</span>`}
 const DAY=864e5;
 const fmtDate=t=>ymd(new Date(t));
 /* 工程の記録：進めたら追加、「1つ戻す」は直前の記録を取り消す */
@@ -23,8 +52,8 @@ function withStatus(k,s){
   const h=Array.isArray(k.history)?k.history.slice():[];
   if(s===k.status)return {...k,history:h};
   const last=h[h.length-1];
-  if(s<k.status&&last&&last.s===k.status){h.pop();if(!h.length||h[h.length-1].s!==s)h.push({s,at:Date.now()})}
-  else h.push({s,at:Date.now()});
+  if(s<k.status&&last&&last.s===k.status){h.pop();if(!h.length||h[h.length-1].s!==s)h.push({s,at:Date.now(),n:stepsOf(k)[s]})}
+  else h.push({s,at:Date.now(),n:stepsOf(k)[s]});
   return {...k,status:s,history:h};
 }
 function daysLabel(ms){const d=Math.floor(ms/DAY);return d<1?"1日未満":d+"日"}
@@ -33,9 +62,10 @@ function logBox(k){
   if(!h.length)return `<div class="box"><h3>工程の記録</h3><p style="margin:0">工程を進めると、その日付がここに自動で記録されます。</p></div>`;
   const rows=h.slice().reverse().map(e=>{
     const next=h[e.i+1];const span=(next?next.at:Date.now())-e.at;
-    const dur=e.s===6&&!next?"":(next?`${daysLabel(span)}`:`継続中・${daysLabel(span)}`);
-    return `<li class="s${e.s}"><span class="dot" aria-hidden="true"></span><span class="st">${stepsOf(k)[e.s]}<span class="dur">${dur}</span></span><input type="date" data-log="${e.i}" value="${fmtDate(e.at)}" aria-label="${stepsOf(k)[e.s]}になった日"></li>`}).join("");
-  const first=h[0], end=k.status===6?h[h.length-1].at:Date.now();
+    const name=stepsOf(k)[e.s]??e.n??"";const fin=name==="完成";
+    const dur=fin&&!next?"":(next?`${daysLabel(span)}`:(e.s===k.status?`継続中・${daysLabel(span)}`:""));
+    return `<li class="${fin?"s6":""}"><span class="dot" aria-hidden="true"></span><span class="st">${esc(name)}<span class="dur">${dur}</span></span><input type="date" data-log="${e.i}" value="${fmtDate(e.at)}" aria-label="${esc(name)}になった日"></li>`}).join("");
+  const first=h[0], end=isDone(k)?h[h.length-1].at:Date.now();
   const total=h.length>1||k.status!==first.s?`<span class="sub">記録開始から${daysLabel(end-first.at)}</span>`:"";
   return `<div class="box"><h3>工程の記録${total}</h3><ul class="log">${rows}</ul><p style="margin:6px 0 0;font-size:12px">日付をタップすると修正できます。</p></div>`;
 }
@@ -86,7 +116,7 @@ async function askPersist(){try{if(navigator.storage?.persist&&!(await navigator
 let kits=[], loaded=false, filter=ls.get("f")||"all", failed=false;
 async function refresh(){
   try{
-    kits=(await store.allKits()).filter(k=>!k.deleted).map(k=>({...k,status:Number(k.status)||0}));
+    kits=(await store.allKits()).filter(k=>!k.deleted).map(k=>{const x={...k,status:Number(k.status)||0};x.status=Math.min(Math.max(0,x.status),lastStep(x));return x});
     await ensureUrls(kits.flatMap(k=>k.photos||[]));
   }catch(e){failed=true}
   loaded=true;render();
@@ -94,11 +124,11 @@ async function refresh(){
 }
 
 /* ---------- 一覧 ---------- */
-function group(k){return k.status===6?"done":k.status<=1?"todo":"wip"}
+function group(k){return isDone(k)?"done":k.status<=1?"todo":"wip"}
 let kindFilter=ls.get("kf")||"all";
 const kindOf=k=>isPM(k)?"plamo":"gk";
 function render(){
-  const total=kits.length, done=kits.filter(k=>k.status===6).length;
+  const total=kits.length, done=kits.filter(isDone).length;
   $("#stock").innerHTML=loaded?`積み <b>${total-done}</b>・完成 <b>${done}</b>`:"読み込み中…";
   const hasPM=kits.some(isPM);
   if(!hasPM&&kindFilter!=="all")kindFilter="all";
@@ -121,7 +151,7 @@ function render(){
   if(!total){list.innerHTML=html+`<div class="empty">まだキットがありません。<br>「＋ キットを登録」から、箱の写真と一緒に1つ目を追加しましょう。<br><br>前の機種のバックアップがある場合は、右上の「バックアップ」から読み込めます。</div>`;return}
   if(!rows.length){list.innerHTML=html+`<div class="empty">条件に合うキットはありません。</div>`;return}
   list.innerHTML=html+rows.map(k=>{
-    const d=daysSince(k.bought), old=k.status<6&&d!=null&&d>=365;
+    const d=daysSince(k.bought), old=!isDone(k)&&d!=null&&d>=365;
     const sub=(isPM(k)?[k.dealer,k.grade,k.scale]:[k.dealer,k.sculptor&&("原型 "+k.sculptor),k.scale]).filter(Boolean).join(" ／ ");
     const p=k.photos?.[0];
     return `<button class="card" data-id="${esc(k.id)}" ${wide&&k.id===curId?'aria-current="true"':""}>
@@ -130,7 +160,7 @@ function render(){
         <div class="name">${esc(k.name||"名称未入力")}</div>
         ${sub?`<div class="sub">${esc(sub)}</div>`:""}
         <div class="row">${isPM(k)?`<span class="kindtag">プラモ</span>`:""}${pill(k)}<span class="age ${old?"old":""}">${ageLabel(k)}</span></div>
-        ${stepsBar(k.status)}
+        ${stepsBar(k.status,stepsOf(k).length)}
       </div></button>`}).join("");
 }
 $("#chips").addEventListener("click",e=>{
@@ -155,9 +185,12 @@ function renderOverview(){
   if(!loaded){el.innerHTML="";return}
   if(!kits.length){el.innerHTML=`<div class="wrap"><div class="overview"><h2>ようこそ</h2><p class="lead">「＋ キットを登録」から、箱の写真と一緒に1つ目を追加しましょう。前の機種やスマホのバックアップがある場合は、左上の「バックアップ」から読み込めます。</p></div></div>`;return}
   const kindsHere=KINDS.filter(([v])=>kits.some(k=>kindOf(k)===v));
-  const countRow=([v,l])=>{const ks=kits.filter(k=>kindOf(k)===v),st=v==="plamo"?STEPS_PM:STEPS_GK;
-    return `${kindsHere.length>1?`<h3 class="ovk">${l}</h3>`:""}<div class="stepcount">${st.map((s,i)=>{const c=ks.filter(k=>k.status===i).length;return `<div class="${c?"":"zero"}"><b>${c}</b><span>${s}</span></div>`}).join("")}</div>`};
-  const old=kits.filter(k=>k.status<6&&daysSince(k.bought)!=null).sort((a,b)=>(a.bought||"").localeCompare(b.bought||"")).slice(0,6);
+  /* ガレキは工程ごと、プラモは作り方で工程が違うので「未着手・作業中・完成」でまとめる */
+  const countRow=([v,l])=>{const ks=kits.filter(k=>kindOf(k)===v);
+    const cells=v==="plamo"?[["未着手",ks.filter(k=>group(k)==="todo").length],["作業中",ks.filter(k=>group(k)==="wip").length],["完成",ks.filter(isDone).length]]
+      :COURSES.gk.steps.map((s,i)=>[s,ks.filter(k=>k.status===i).length]);
+    return `${kindsHere.length>1?`<h3 class="ovk">${l}</h3>`:""}<div class="stepcount" style="grid-template-columns:repeat(${cells.length},minmax(0,1fr))">${cells.map(([s,c])=>`<div class="${c?"":"zero"}"><b>${c}</b><span>${s}</span></div>`).join("")}</div>`};
+  const old=kits.filter(k=>!isDone(k)&&daysSince(k.bought)!=null).sort((a,b)=>(a.bought||"").localeCompare(b.bought||"")).slice(0,6);
   el.innerHTML=`<div class="wrap"><div class="overview">
     <div><h2>積みの状況</h2><p class="lead">左の一覧からキットを選ぶと、ここに詳細が表示されます。<span class="kbd">↑</span> <span class="kbd">↓</span> でも移動できます。</p></div>
     <div style="display:grid;gap:8px">${kindsHere.map(countRow).join("")}</div>
@@ -168,7 +201,7 @@ function renderDetail(){
   const k=kits.find(x=>x.id===curId);if(!k){if(wide){curId=null;renderOverview()}else closeDetail();return}
   const price=k.price!=null&&k.price!==""?"¥"+Number(k.price).toLocaleString("ja-JP"):"";
   const fields=(isPM(k)
-    ?[["種類","プラモ"],["メーカー",k.dealer],["シリーズ・グレード",k.grade],["スケール",k.scale],["購入店",k.event],["購入日",k.bought],["価格",price],["保管場所",k.place]]
+    ?[["種類","プラモ"],["作り方",COURSES[courseOf(k)].label],["メーカー",k.dealer],["シリーズ・グレード",k.grade],["スケール",k.scale],["購入店",k.event],["購入日",k.bought],["価格",price],["保管場所",k.place]]
     :[["ディーラー",k.dealer],["原型師",k.sculptor],["スケール",k.scale],["素材",k.material],["入手",k.event],["購入日",k.bought],["価格",price],["保管場所",k.place]]).filter(f=>f[1]);
   const ps=(k.photos||[]).filter(src);
   $("#detail").innerHTML=`<div class="wrap">
@@ -177,11 +210,11 @@ function renderDetail(){
     <div class="gallery">${ps.length?`<img class="main" id="mainph" src="${src(ps[0])}" alt="${esc(k.name)}の写真">${ps.length>1?`<div class="thumbs">${ps.map((p,i)=>`<button type="button" data-ph="${esc(p)}" aria-pressed="${i===0}" aria-label="写真${i+1}を表示"><img src="${src(p)}" alt=""></button>`).join("")}</div>`:""}`:`<div class="none">写真はまだありません</div>`}</div>
     <div style="display:grid;gap:16px;min-width:0">
     <div><p class="dname">${esc(k.name||"名称未入力")}</p><div class="row" style="margin-top:6px">${pill(k)}<span class="age">${ageLabel(k)}</span></div></div>
-    <div class="advance">${stepsBar(k.status)}
-      <div class="stepnames">${stepsOf(k).map((s,i)=>`<span class="${i===k.status?"cur":""}">${s}</span>`).join("")}</div>
+    <div class="advance">${stepsBar(k.status,stepsOf(k).length)}
+      <div class="stepnames" style="grid-template-columns:repeat(${stepsOf(k).length},minmax(0,1fr))">${stepsOf(k).map((s,i)=>`<span class="${i===k.status?"cur":""}">${s}</span>`).join("")}</div>
       <div class="row" style="justify-content:space-between">
         <button class="btn" data-a="back" ${k.status===0?"disabled":""}>1つ戻す</button>
-        <button class="btn primary" data-a="next" ${k.status===6?"disabled":""}>${k.status===6?"完成済み":"「"+stepsOf(k)[k.status+1]+"」に進める"}</button></div>
+        <button class="btn primary" data-a="next" ${isDone(k)?"disabled":""}>${isDone(k)?"完成済み":"「"+stepsOf(k)[k.status+1]+"」に進める"}</button></div>
     </div>
     ${logBox(k)}
     ${fields.length?`<div class="box"><dl>${fields.map(([a,b])=>`<dt>${a}</dt><dd class="${/価格|購入日/.test(a)?"num":""}">${esc(b)}</dd>`).join("")}</dl></div>`:""}
@@ -206,8 +239,8 @@ $("#detail").addEventListener("click",async e=>{
   const k=kits.find(x=>x.id===curId);
   if(a==="close")closeDetail();
   else if(a==="edit")openEditor(k);
-  else if(a==="next"||a==="back"){const s=Math.min(6,Math.max(0,k.status+(a==="next"?1:-1)));
-    try{await store.putKit({...withStatus(k,s),updatedAt:Date.now()});await refresh();if(a==="next")toast(s===6?"完成おめでとうございます":"「"+stepsOf(k)[s]+"」に進めました")}catch(_){toast("更新できませんでした")}}
+  else if(a==="next"||a==="back"){const s=Math.min(lastStep(k),Math.max(0,k.status+(a==="next"?1:-1)));
+    try{await store.putKit({...withStatus(k,s),updatedAt:Date.now()});await refresh();if(a==="next")toast(s>=lastStep(k)?"完成おめでとうございます":"「"+stepsOf(k)[s]+"」に進めました")}catch(_){toast("更新できませんでした")}}
   else if(a==="askdel"){$("#del").innerHTML=`<div class="confirm">写真も含めて削除します。元に戻せません。<button class="btn danger" data-a="del">削除する</button><button class="btn ghost" data-a="nodel">やめる</button></div>`}
   else if(a==="nodel")renderDetail();
   else if(a==="del"){try{await store.putKit({id:k.id,deleted:true,updatedAt:Date.now()});for(const p of k.photos||[])await removePhoto(p);closeDetail();await refresh();toast("削除しました")}catch(_){toast("削除できませんでした")}}
@@ -219,6 +252,7 @@ function openEditor(k){
   const kind=kindFilter!=="all"?kindFilter:(ls.get("lastKind")||"gk");
   draft=k?JSON.parse(JSON.stringify(k)):{kind,name:"",dealer:"",sculptor:"",grade:"",scale:"",material:"レジン（キャスト）",event:"",bought:today(),price:"",status:0,check:"",place:"",memo:"",photos:[]};
   if(!draft.kind)draft.kind="gk";
+  if(isPM(draft)&&!PM_COURSES.includes(draft.course))draft.course=k?"zentoso":(ls.get("lastCourse")||"suguri");
   newPhotos=[];removed=[];renderEditor();$("#editor").hidden=false;$("#editor").scrollTop=0;
 }
 const SUGGEST=["dealer","sculptor","grade","scale","place"];
@@ -249,6 +283,8 @@ function renderEditor(){
       <div class="two"><div class="f"><label for="e-bought">購入日</label><input id="e-bought" name="bought" type="date" value="${esc(draft.bought)}" ${draft.bought?"":"disabled"}>
           <label class="check"><input type="checkbox" id="e-bunk" ${draft.bought?"":"checked"}>分からない</label></div>
         ${field("price","価格（円）","number")}</div>
+      ${isPM(draft)?`<div class="f"><span class="flabel">作り方</span><div class="seg" id="courseseg">${PM_COURSES.map(c=>`<button type="button" data-course="${c}" aria-pressed="${draft.course===c}">${COURSES[c].label}</button>`).join("")}</div>
+        <span class="hint">作り方に合わせて工程が変わります。あとから変えても、記録した日付は残ります。</span></div>`:""}
       <div class="f"><span class="flabel">工程</span><div class="seg" id="seg">${stepsOf(draft).map((s,i)=>`<button type="button" data-s="${i}" aria-pressed="${draft.status===i}">${s}</button>`).join("")}</div></div>
       ${field("place","保管場所","text","押し入れ上段・箱3 など")}
       ${isPM(draft)?(draft.check?`<div class="f"><label for="e-check">パーツ確認メモ</label><textarea id="e-check" name="check">${esc(draft.check)}</textarea></div>`:""):`<div class="f"><label for="e-check">検品メモ</label><textarea id="e-check" name="check" placeholder="欠品・気泡・歪み、交換依頼の期限など">${esc(draft.check)}</textarea></div>`}
@@ -320,7 +356,10 @@ $("#editor").addEventListener("change",async e=>{
   }
 });
 $("#editor").addEventListener("click",async e=>{
-  const kd=e.target.closest("[data-kind]");if(kd){if(draft.kind===kd.dataset.kind)return;readForm();draft.kind=kd.dataset.kind;ls.set("lastKind",draft.kind);const st=$("#editor").scrollTop;renderEditor();$("#editor").scrollTop=st;return}
+  const kd=e.target.closest("[data-kind]");if(kd){if(draft.kind===kd.dataset.kind)return;readForm();const nk=kd.dataset.kind;
+    draft=changeCourse(draft,nk,nk==="plamo"?(ls.get("lastCourse")||"suguri"):undefined);ls.set("lastKind",nk);const st=$("#editor").scrollTop;renderEditor();$("#editor").scrollTop=st;return}
+  const cs=e.target.closest("[data-course]");if(cs){if(draft.course===cs.dataset.course)return;readForm();
+    draft=changeCourse(draft,"plamo",cs.dataset.course);ls.set("lastCourse",draft.course);const st=$("#editor").scrollTop;renderEditor();$("#editor").scrollTop=st;return}
   const s=e.target.closest("[data-s]");if(s){draft.status=+s.dataset.s;$("#seg").querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed",b===s));return}
   const rm=e.target.closest("[data-rm]");if(rm){readForm();removed.push(draft.photos.splice(+rm.dataset.rm,1)[0]);renderPhotos();return}
   const a=e.target.closest("[data-a]")?.dataset.a;
@@ -334,8 +373,15 @@ async function save(){
   if(busy){err.textContent="写真の取り込みが終わるまでお待ちください。";err.hidden=false;return}
   const isNew=!draft.id;
   let k={...draft,id:draft.id||uid(),updatedAt:Date.now(),createdAt:draft.createdAt||Date.now()};
-  if(isNew)k.history=[{s:k.status,at:Date.now()}];
-  else{const prev=kits.find(x=>x.id===k.id);if(prev&&prev.status!==k.status)k={...withStatus(prev,k.status),...k,status:k.status,history:withStatus(prev,k.status).history}}
+  if(isNew)k.history=[{s:k.status,at:Date.now(),n:stepsOf(k)[k.status]}];
+  else{const prev=kits.find(x=>x.id===k.id);
+    if(prev){
+      /* 種類・作り方を変えた場合は、元の記録を新しい工程に合わせてから比べる */
+      const base=courseOf(prev)!==courseOf(k)?changeCourse(prev,k.kind,k.course):prev;
+      k.history=base.history||[];
+      if(base.status!==k.status)k.history=withStatus({...k,status:base.status},k.status).history;
+    }}
+  if(!isPM(k))delete k.course;
   try{
     await store.putKit(k);
     for(const p of removed)await removePhoto(p);
