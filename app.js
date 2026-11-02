@@ -357,7 +357,7 @@ async function importBackup(file,input){
 /* ---------- Googleドライブ同期 ---------- */
 /* 各利用者が自分のGoogleアカウントでログインし、その人のドライブの「ガレキ積み帳」フォルダに保存する。
    権限は drive.file（このアプリが作ったファイルだけ）に限定。アクセストークンはメモリにだけ置く。 */
-const CLIENT_ID="";  // Google CloudのOAuthクライアントID（〜.apps.googleusercontent.com）
+const CLIENT_ID="883909674324-4objgqvu77bi3v9a0kv87n7h410f6ko7.apps.googleusercontent.com";  // Google CloudのOAuthクライアントID（〜.apps.googleusercontent.com）
 const DRIVE_SCOPE="https://www.googleapis.com/auth/drive.file";
 const SCOPES=DRIVE_SCOPE+" openid https://www.googleapis.com/auth/userinfo.email";
 const FOLDER_NAME="ガレキ積み帳", KITS_FILE="kits.json", PHOTO_PREFIX="photo-";
