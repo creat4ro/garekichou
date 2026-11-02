@@ -1,5 +1,10 @@
 "use strict";
-const STEPS=["未開封","検品済","洗浄","仮組","サフ","塗装","完成"];
+const STEPS_GK=["未開封","検品済","洗浄","仮組","サフ","塗装","完成"];
+const STEPS_PM=["未開封","パーツ確認","仮組","表面処理","サフ","塗装","完成"];
+const STEPS=STEPS_GK;
+const isPM=k=>k?.kind==="plamo";
+const stepsOf=k=>isPM(k)?STEPS_PM:STEPS_GK;
+const KINDS=[["gk","ガレキ"],["plamo","プラモ"]];
 const MATERIALS=["レジン（キャスト）","レジン（3Dプリント）","ソフビ","メタル","その他"];
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -10,7 +15,7 @@ const ls={get(k){try{return localStorage.getItem(k)}catch(_){return null}},set(k
 function daysSince(s){if(!s)return null;const t=Date.parse(s+"T00:00:00");if(isNaN(t))return null;return Math.max(0,Math.floor((Date.now()-t)/864e5))}
 function ageLabel(k){if(k.status===6)return "完成";if(!k.bought)return "購入日不明";const d=daysSince(k.bought);if(d==null)return "";if(d>=365)return "積み "+Math.floor(d/365)+"年"+Math.floor(d%365/30)+"ヶ月";if(d>=30)return "積み "+Math.floor(d/30)+"ヶ月";return "積み "+d+"日"}
 function stepsBar(n){return `<div class="steps${n===6?" done":""}" aria-hidden="true">${STEPS.map((_,i)=>`<i class="${i<=n?"on":""}"></i>`).join("")}</div>`}
-function pill(n){return `<span class="pill ${n===6?"s6":n>=2?"wip":""}">${STEPS[n]}</span>`}
+function pill(k){const n=k.status;return `<span class="pill ${n===6?"s6":n>=2?"wip":""}">${stepsOf(k)[n]}</span>`}
 const DAY=864e5;
 const fmtDate=t=>ymd(new Date(t));
 /* 工程の記録：進めたら追加、「1つ戻す」は直前の記録を取り消す */
@@ -29,7 +34,7 @@ function logBox(k){
   const rows=h.slice().reverse().map(e=>{
     const next=h[e.i+1];const span=(next?next.at:Date.now())-e.at;
     const dur=e.s===6&&!next?"":(next?`${daysLabel(span)}`:`継続中・${daysLabel(span)}`);
-    return `<li class="s${e.s}"><span class="dot" aria-hidden="true"></span><span class="st">${STEPS[e.s]}<span class="dur">${dur}</span></span><input type="date" data-log="${e.i}" value="${fmtDate(e.at)}" aria-label="${STEPS[e.s]}になった日"></li>`}).join("");
+    return `<li class="s${e.s}"><span class="dot" aria-hidden="true"></span><span class="st">${stepsOf(k)[e.s]}<span class="dur">${dur}</span></span><input type="date" data-log="${e.i}" value="${fmtDate(e.at)}" aria-label="${stepsOf(k)[e.s]}になった日"></li>`}).join("");
   const first=h[0], end=k.status===6?h[h.length-1].at:Date.now();
   const total=h.length>1||k.status!==first.s?`<span class="sub">記録開始から${daysLabel(end-first.at)}</span>`:"";
   return `<div class="box"><h3>工程の記録${total}</h3><ul class="log">${rows}</ul><p style="margin:6px 0 0;font-size:12px">日付をタップすると修正できます。</p></div>`;
@@ -90,15 +95,21 @@ async function refresh(){
 
 /* ---------- 一覧 ---------- */
 function group(k){return k.status===6?"done":k.status<=1?"todo":"wip"}
+let kindFilter=ls.get("kf")||"all";
+const kindOf=k=>isPM(k)?"plamo":"gk";
 function render(){
   const total=kits.length, done=kits.filter(k=>k.status===6).length;
   $("#stock").innerHTML=loaded?`積み <b>${total-done}</b>・完成 <b>${done}</b>`:"読み込み中…";
-  const counts={all:total,todo:0,wip:0,done:0};kits.forEach(k=>counts[group(k)]++);
+  const hasPM=kits.some(isPM);
+  if(!hasPM&&kindFilter!=="all")kindFilter="all";
+  const inKind=kits.filter(k=>kindFilter==="all"||kindOf(k)===kindFilter);
+  const counts={all:inKind.length,todo:0,wip:0,done:0};inKind.forEach(k=>counts[group(k)]++);
   const defs=[["all","すべて"],["todo","未着手"],["wip","作業中"],["done","完成"]];
-  $("#chips").innerHTML=defs.map(([v,l])=>`<button class="chip" data-f="${v}" aria-pressed="${filter===v}">${l}<span class="num">${counts[v]}</span></button>`).join("");
+  const kinds=hasPM?`<span class="kindseg" role="group" aria-label="種類">${[["all","全部"],...KINDS].map(([v,l])=>`<button class="chip kchip" data-kf="${v}" aria-pressed="${kindFilter===v}">${l}</button>`).join("")}</span>`:"";
+  $("#chips").innerHTML=kinds+defs.map(([v,l])=>`<button class="chip" data-f="${v}" aria-pressed="${filter===v}">${l}<span class="num">${counts[v]}</span></button>`).join("");
   const q=$("#q").value.trim().toLowerCase(), sort=$("#sort").value;
-  let rows=kits.filter(k=>filter==="all"||group(k)===filter)
-    .filter(k=>!q||[k.name,k.dealer,k.sculptor,k.event,k.place,k.material].join(" ").toLowerCase().includes(q));
+  let rows=inKind.filter(k=>filter==="all"||group(k)===filter)
+    .filter(k=>!q||[k.name,k.dealer,k.sculptor,k.grade,k.event,k.place,k.material].join(" ").toLowerCase().includes(q));
   rows.sort((a,b)=>sort==="name"?(a.name||"").localeCompare(b.name||"","ja"):
     sort==="new"?(b.bought||"").localeCompare(a.bought||""):(a.bought||"0000").localeCompare(b.bought||"0000"));
   const list=$("#list");
@@ -111,18 +122,20 @@ function render(){
   if(!rows.length){list.innerHTML=html+`<div class="empty">条件に合うキットはありません。</div>`;return}
   list.innerHTML=html+rows.map(k=>{
     const d=daysSince(k.bought), old=k.status<6&&d!=null&&d>=365;
-    const sub=[k.dealer,k.sculptor&&("原型 "+k.sculptor),k.scale].filter(Boolean).join(" ／ ");
+    const sub=(isPM(k)?[k.dealer,k.grade,k.scale]:[k.dealer,k.sculptor&&("原型 "+k.sculptor),k.scale]).filter(Boolean).join(" ／ ");
     const p=k.photos?.[0];
     return `<button class="card" data-id="${esc(k.id)}" ${wide&&k.id===curId?'aria-current="true"':""}>
       <div class="thumb">${p&&src(p)?`<img src="${src(p)}" alt="">`:"写真なし"}</div>
       <div class="meta">
         <div class="name">${esc(k.name||"名称未入力")}</div>
         ${sub?`<div class="sub">${esc(sub)}</div>`:""}
-        <div class="row">${pill(k.status)}<span class="age ${old?"old":""}">${ageLabel(k)}</span></div>
+        <div class="row">${isPM(k)?`<span class="kindtag">プラモ</span>`:""}${pill(k)}<span class="age ${old?"old":""}">${ageLabel(k)}</span></div>
         ${stepsBar(k.status)}
       </div></button>`}).join("");
 }
-$("#chips").addEventListener("click",e=>{const b=e.target.closest("[data-f]");if(!b)return;filter=b.dataset.f;ls.set("f",filter);render()});
+$("#chips").addEventListener("click",e=>{
+  const kb=e.target.closest("[data-kf]");if(kb){kindFilter=kb.dataset.kf;ls.set("kf",kindFilter);render();return}
+  const b=e.target.closest("[data-f]");if(!b)return;filter=b.dataset.f;ls.set("f",filter);render()});
 $("#q").addEventListener("input",render);
 $("#sort").addEventListener("change",()=>{ls.set("s",$("#sort").value);render()});
 $("#list").addEventListener("click",e=>{if(e.target.closest("[data-open-backup]"))return openBackup();const c=e.target.closest(".card");if(c)openDetail(c.dataset.id)});
@@ -141,34 +154,38 @@ function renderOverview(){
   const el=$("#detail");
   if(!loaded){el.innerHTML="";return}
   if(!kits.length){el.innerHTML=`<div class="wrap"><div class="overview"><h2>ようこそ</h2><p class="lead">「＋ キットを登録」から、箱の写真と一緒に1つ目を追加しましょう。前の機種やスマホのバックアップがある場合は、左上の「バックアップ」から読み込めます。</p></div></div>`;return}
-  const cnt=STEPS.map((_,i)=>kits.filter(k=>k.status===i).length);
+  const kindsHere=KINDS.filter(([v])=>kits.some(k=>kindOf(k)===v));
+  const countRow=([v,l])=>{const ks=kits.filter(k=>kindOf(k)===v),st=v==="plamo"?STEPS_PM:STEPS_GK;
+    return `${kindsHere.length>1?`<h3 class="ovk">${l}</h3>`:""}<div class="stepcount">${st.map((s,i)=>{const c=ks.filter(k=>k.status===i).length;return `<div class="${c?"":"zero"}"><b>${c}</b><span>${s}</span></div>`}).join("")}</div>`};
   const old=kits.filter(k=>k.status<6&&daysSince(k.bought)!=null).sort((a,b)=>(a.bought||"").localeCompare(b.bought||"")).slice(0,6);
   el.innerHTML=`<div class="wrap"><div class="overview">
     <div><h2>積みの状況</h2><p class="lead">左の一覧からキットを選ぶと、ここに詳細が表示されます。<span class="kbd">↑</span> <span class="kbd">↓</span> でも移動できます。</p></div>
-    <div class="stepcount">${STEPS.map((s,i)=>`<div class="${cnt[i]?"":"zero"}"><b>${cnt[i]}</b><span>${s}</span></div>`).join("")}</div>
-    ${old.length?`<div class="box"><h3>長く積んでいるキット</h3><ul class="oldlist">${old.map(k=>{const p=k.photos?.[0];return `<li><button type="button" data-open="${esc(k.id)}"><span class="t">${p&&src(p)?`<img src="${src(p)}" alt="">`:""}</span><span class="n">${esc(k.name)}</span><span class="d">${ageLabel(k)}</span></button></li>`}).join("")}</ul></div>`:""}
+    <div style="display:grid;gap:8px">${kindsHere.map(countRow).join("")}</div>
+    ${old.length?`<div class="box"><h3>長く積んでいるキット</h3><ul class="oldlist">${old.map(k=>{const p=k.photos?.[0];return `<li><button type="button" data-open="${esc(k.id)}"><span class="t">${p&&src(p)?`<img src="${src(p)}" alt="">`:""}</span><span class="n">${esc(k.name)}</span><span class="d ${daysSince(k.bought)>=365?"":"fresh"}">${ageLabel(k)}</span></button></li>`}).join("")}</ul></div>`:""}
   </div></div>`;
 }
 function renderDetail(){
   const k=kits.find(x=>x.id===curId);if(!k){if(wide){curId=null;renderOverview()}else closeDetail();return}
-  const fields=[["ディーラー",k.dealer],["原型師",k.sculptor],["スケール",k.scale],["素材",k.material],["入手",k.event],
-    ["購入日",k.bought],["価格",k.price!=null&&k.price!==""?"¥"+Number(k.price).toLocaleString("ja-JP"):""],["保管場所",k.place]].filter(f=>f[1]);
+  const price=k.price!=null&&k.price!==""?"¥"+Number(k.price).toLocaleString("ja-JP"):"";
+  const fields=(isPM(k)
+    ?[["種類","プラモ"],["メーカー",k.dealer],["シリーズ・グレード",k.grade],["スケール",k.scale],["購入店",k.event],["購入日",k.bought],["価格",price],["保管場所",k.place]]
+    :[["ディーラー",k.dealer],["原型師",k.sculptor],["スケール",k.scale],["素材",k.material],["入手",k.event],["購入日",k.bought],["価格",price],["保管場所",k.place]]).filter(f=>f[1]);
   const ps=(k.photos||[]).filter(src);
   $("#detail").innerHTML=`<div class="wrap">
     <div class="bar"><button class="btn ghost" data-a="close">← 一覧</button><h2>${esc(k.name)}</h2><button class="btn" data-a="edit">編集</button></div>
     <div class="detail-cols">
     <div class="gallery">${ps.length?`<img class="main" id="mainph" src="${src(ps[0])}" alt="${esc(k.name)}の写真">${ps.length>1?`<div class="thumbs">${ps.map((p,i)=>`<button type="button" data-ph="${esc(p)}" aria-pressed="${i===0}" aria-label="写真${i+1}を表示"><img src="${src(p)}" alt=""></button>`).join("")}</div>`:""}`:`<div class="none">写真はまだありません</div>`}</div>
     <div style="display:grid;gap:16px;min-width:0">
-    <div><p class="dname">${esc(k.name||"名称未入力")}</p><div class="row" style="margin-top:6px">${pill(k.status)}<span class="age">${ageLabel(k)}</span></div></div>
+    <div><p class="dname">${esc(k.name||"名称未入力")}</p><div class="row" style="margin-top:6px">${pill(k)}<span class="age">${ageLabel(k)}</span></div></div>
     <div class="advance">${stepsBar(k.status)}
-      <div class="stepnames">${STEPS.map((s,i)=>`<span class="${i===k.status?"cur":""}">${s}</span>`).join("")}</div>
+      <div class="stepnames">${stepsOf(k).map((s,i)=>`<span class="${i===k.status?"cur":""}">${s}</span>`).join("")}</div>
       <div class="row" style="justify-content:space-between">
         <button class="btn" data-a="back" ${k.status===0?"disabled":""}>1つ戻す</button>
-        <button class="btn primary" data-a="next" ${k.status===6?"disabled":""}>${k.status===6?"完成済み":"「"+STEPS[k.status+1]+"」に進める"}</button></div>
+        <button class="btn primary" data-a="next" ${k.status===6?"disabled":""}>${k.status===6?"完成済み":"「"+stepsOf(k)[k.status+1]+"」に進める"}</button></div>
     </div>
     ${logBox(k)}
     ${fields.length?`<div class="box"><dl>${fields.map(([a,b])=>`<dt>${a}</dt><dd class="${/価格|購入日/.test(a)?"num":""}">${esc(b)}</dd>`).join("")}</dl></div>`:""}
-    ${k.check?`<div class="box"><dl><dt>検品メモ</dt><dd>${esc(k.check)}</dd></dl></div>`:""}
+    ${k.check?`<div class="box"><dl><dt>${isPM(k)?"パーツ確認メモ":"検品メモ"}</dt><dd>${esc(k.check)}</dd></dl></div>`:""}
     ${k.memo?`<div class="box"><dl><dt>メモ</dt><dd>${esc(k.memo)}</dd></dl></div>`:""}
     <div id="del"><button class="btn danger" data-a="askdel">このキットを削除</button></div>
     </div></div>
@@ -190,7 +207,7 @@ $("#detail").addEventListener("click",async e=>{
   if(a==="close")closeDetail();
   else if(a==="edit")openEditor(k);
   else if(a==="next"||a==="back"){const s=Math.min(6,Math.max(0,k.status+(a==="next"?1:-1)));
-    try{await store.putKit({...withStatus(k,s),updatedAt:Date.now()});await refresh();if(a==="next")toast(s===6?"完成おめでとうございます":"「"+STEPS[s]+"」に進めました")}catch(_){toast("更新できませんでした")}}
+    try{await store.putKit({...withStatus(k,s),updatedAt:Date.now()});await refresh();if(a==="next")toast(s===6?"完成おめでとうございます":"「"+stepsOf(k)[s]+"」に進めました")}catch(_){toast("更新できませんでした")}}
   else if(a==="askdel"){$("#del").innerHTML=`<div class="confirm">写真も含めて削除します。元に戻せません。<button class="btn danger" data-a="del">削除する</button><button class="btn ghost" data-a="nodel">やめる</button></div>`}
   else if(a==="nodel")renderDetail();
   else if(a==="del"){try{await store.putKit({id:k.id,deleted:true,updatedAt:Date.now()});for(const p of k.photos||[])await removePhoto(p);closeDetail();await refresh();toast("削除しました")}catch(_){toast("削除できませんでした")}}
@@ -199,16 +216,18 @@ $("#detail").addEventListener("click",async e=>{
 /* ---------- 登録・編集 ---------- */
 let draft=null, newPhotos=[], removed=[], busy=0;
 function openEditor(k){
-  draft=k?JSON.parse(JSON.stringify(k)):{name:"",dealer:"",sculptor:"",scale:"",material:"レジン（キャスト）",event:"",bought:today(),price:"",status:0,check:"",place:"",memo:"",photos:[]};
+  const kind=kindFilter!=="all"?kindFilter:(ls.get("lastKind")||"gk");
+  draft=k?JSON.parse(JSON.stringify(k)):{kind,name:"",dealer:"",sculptor:"",grade:"",scale:"",material:"レジン（キャスト）",event:"",bought:today(),price:"",status:0,check:"",place:"",memo:"",photos:[]};
+  if(!draft.kind)draft.kind="gk";
   newPhotos=[];removed=[];renderEditor();$("#editor").hidden=false;$("#editor").scrollTop=0;
 }
-const SUGGEST=["dealer","sculptor","scale","place"];
+const SUGGEST=["dealer","sculptor","grade","scale","place"];
 function field(id,label,type="text",ph=""){return `<div class="f"><label for="e-${id}">${label}</label><input id="e-${id}" name="${id}" type="${type}" ${type==="number"?'inputmode="numeric" min="0"':""} ${SUGGEST.includes(id)?`list="dl-${id}" autocomplete="off"`:""} placeholder="${ph}" value="${esc(draft[id])}"></div>`}
 /* 一度入力したディーラー・原型師・スケール・保管場所を、入力候補として出す（よく使うものから） */
 function suggestLists(){
   return SUGGEST.map(id=>{
     const n=new Map();
-    for(const k of kits){const v=String(k[id]||"").trim();if(v)n.set(v,(n.get(v)||0)+1)}
+    for(const k of kits){if(id!=="place"&&kindOf(k)!==draft.kind)continue;const v=String(k[id]||"").trim();if(v)n.set(v,(n.get(v)||0)+1)}
     const vals=[...n.entries()].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0],"ja")).map(e=>e[0]);
     return `<datalist id="dl-${id}">${vals.map(v=>`<option value="${esc(v)}"></option>`).join("")}</datalist>`;
   }).join("");
@@ -217,20 +236,22 @@ function renderEditor(){
   $("#editor").innerHTML=`<div class="wrap">
     <div class="bar"><button class="btn ghost" data-a="cancel">キャンセル</button><h2>${draft.id?"キットを編集":"キットを登録"}</h2><button class="btn primary" data-a="save">保存</button></div>
     <form id="kitform" novalidate>
+      <div class="kindtoggle" role="radiogroup" aria-label="種類">${KINDS.map(([v,l])=>`<button type="button" role="radio" data-kind="${v}" aria-checked="${draft.kind===v}">${l}</button>`).join("")}</div>
       <div class="f"><span class="flabel">写真</span><div class="photos" id="phs"></div></div>
-      <div class="f"><label for="e-name">キット名（必須）</label><input id="e-name" name="name" required value="${esc(draft.name)}" placeholder="例：〇〇 1/7 レジンキャストキット"></div>
-      <div class="two">${field("dealer","ディーラー/メーカー")}${field("sculptor","原型師")}</div>
+      <div class="f"><label for="e-name">キット名（必須）</label><input id="e-name" name="name" required value="${esc(draft.name)}" placeholder="${isPM(draft)?"例：HG 〇〇〇":"例：〇〇 1/7 レジンキャストキット"}"></div>
+      ${isPM(draft)?`<div class="two">${field("dealer","メーカー","text","バンダイ、コトブキヤ など")}${field("grade","シリーズ・グレード","text","HG、MG、30MS など")}</div>
+      ${field("scale","スケール","text","1/144、ノンスケール等")}`:`<div class="two">${field("dealer","ディーラー/メーカー")}${field("sculptor","原型師")}</div>
       <div class="two">${field("scale","スケール","text","1/7、ノンスケール等")}
-        <div class="f"><label for="e-material">素材</label><select id="e-material" name="material">${(draft.material&&!MATERIALS.includes(draft.material)?[draft.material,...MATERIALS]:MATERIALS).map(m=>`<option value="${esc(m)}" ${draft.material===m?"selected":""}>${esc(m==="レジン"?"レジン（種類を選んでください）":m)}</option>`).join("")}</select></div></div>
-      <div class="f"><label for="e-event">入手イベント・店</label><input id="e-event" name="event" type="text" placeholder="WF2026夏、通販 など" value="${esc(draft.event)}">
+        <div class="f"><label for="e-material">素材</label><select id="e-material" name="material">${(draft.material&&!MATERIALS.includes(draft.material)?[draft.material,...MATERIALS]:MATERIALS).map(m=>`<option value="${esc(m)}" ${draft.material===m?"selected":""}>${esc(m==="レジン"?"レジン（種類を選んでください）":m)}</option>`).join("")}</select></div></div>`}
+      ${isPM(draft)?`<div class="f"><label for="e-event">購入店</label><input id="e-event" name="event" type="text" placeholder="家電量販店、通販 など" value="${esc(draft.event)}"></div>`:`<div class="f"><label for="e-event">入手イベント・店</label><input id="e-event" name="event" type="text" placeholder="WF2026夏、通販 など" value="${esc(draft.event)}">
         <div class="evpick"><select id="e-evseries" aria-label="イベントを選ぶ"><option value="">主要イベントから選ぶ（購入日も入ります）</option>${eventGroups().map((g,i)=>`<option value="${i}">${esc(g.label)}</option>`).join("")}</select>
-        <select id="e-evround" aria-label="開催回を選ぶ" hidden></select></div></div>
+        <select id="e-evround" aria-label="開催回を選ぶ" hidden></select></div></div>`}
       <div class="two"><div class="f"><label for="e-bought">購入日</label><input id="e-bought" name="bought" type="date" value="${esc(draft.bought)}" ${draft.bought?"":"disabled"}>
           <label class="check"><input type="checkbox" id="e-bunk" ${draft.bought?"":"checked"}>分からない</label></div>
         ${field("price","価格（円）","number")}</div>
-      <div class="f"><span class="flabel">工程</span><div class="seg" id="seg">${STEPS.map((s,i)=>`<button type="button" data-s="${i}" aria-pressed="${draft.status===i}">${s}</button>`).join("")}</div></div>
+      <div class="f"><span class="flabel">工程</span><div class="seg" id="seg">${stepsOf(draft).map((s,i)=>`<button type="button" data-s="${i}" aria-pressed="${draft.status===i}">${s}</button>`).join("")}</div></div>
       ${field("place","保管場所","text","押し入れ上段・箱3 など")}
-      <div class="f"><label for="e-check">検品メモ</label><textarea id="e-check" name="check" placeholder="欠品・気泡・歪み、交換依頼の期限など">${esc(draft.check)}</textarea></div>
+      ${isPM(draft)?(draft.check?`<div class="f"><label for="e-check">パーツ確認メモ</label><textarea id="e-check" name="check">${esc(draft.check)}</textarea></div>`:""):`<div class="f"><label for="e-check">検品メモ</label><textarea id="e-check" name="check" placeholder="欠品・気泡・歪み、交換依頼の期限など">${esc(draft.check)}</textarea></div>`}
       <div class="f"><label for="e-memo">メモ</label><textarea id="e-memo" name="memo" placeholder="塗装プラン、改造アイデアなど">${esc(draft.memo)}</textarea></div>
       <p class="err" id="ferr" hidden></p>
       ${suggestLists()}
@@ -243,7 +264,7 @@ function renderPhotos(){
     +Array.from({length:busy},()=>`<div class="ph up">取り込み中…</div>`).join("")
     +`<div class="addph"><span aria-hidden="true">＋ 写真を追加<br>（複数可）</span><input id="e-file" type="file" accept="image/*" multiple aria-label="写真を追加"></div>`;
 }
-function readForm(){const f=$("#kitform");for(const n of ["name","dealer","sculptor","scale","material","event","bought","price","place","check","memo"]){draft[n]=f.elements[n].value.trim()}draft.price=draft.price===""?"":Number(draft.price);if($("#e-bunk")?.checked)draft.bought=""}
+function readForm(){const f=$("#kitform");for(const n of ["name","dealer","sculptor","grade","scale","material","event","bought","price","place","check","memo"]){const el=f.elements[n];if(el)draft[n]=el.value.trim()}if(typeof draft.price==="string")draft.price=draft.price===""?"":Number(draft.price);if($("#e-bunk")?.checked)draft.bought=""}
 /* 主要イベント＋自分が入力したことのあるイベントを、購入日つきで選べるようにする */
 /* まずイベント名を選び、次に開催回を選ぶ2段階のリスト */
 const SERIES=["ワンダーフェスティバル","となりのモケイフェスティバル","トレジャーフェスタ"];
@@ -299,6 +320,7 @@ $("#editor").addEventListener("change",async e=>{
   }
 });
 $("#editor").addEventListener("click",async e=>{
+  const kd=e.target.closest("[data-kind]");if(kd){if(draft.kind===kd.dataset.kind)return;readForm();draft.kind=kd.dataset.kind;ls.set("lastKind",draft.kind);const st=$("#editor").scrollTop;renderEditor();$("#editor").scrollTop=st;return}
   const s=e.target.closest("[data-s]");if(s){draft.status=+s.dataset.s;$("#seg").querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed",b===s));return}
   const rm=e.target.closest("[data-rm]");if(rm){readForm();removed.push(draft.photos.splice(+rm.dataset.rm,1)[0]);renderPhotos();return}
   const a=e.target.closest("[data-a]")?.dataset.a;
@@ -614,6 +636,7 @@ function introPages(){
       <li><span class="ic" aria-hidden="true">1</span><div><b>写真付きで登録</b>箱やパーツの写真、ディーラー、原型師、購入日、保管場所をまとめて残せます。</div></li>
       <li><span class="ic" aria-hidden="true">2</span><div><b>工程を進めるだけで日付が残る</b>未開封から完成まで、いつどこまで進んだかを自動で記録します。</div></li>
       <li><span class="ic" aria-hidden="true">3</span><div><b>積み期間がひと目で分かる</b>1年以上積んでいるキットは赤く表示されます。</div></li>
+      <li><span class="ic" aria-hidden="true">4</span><div><b>プラモも一緒に管理</b>登録画面の「ガレキ／プラモ」を切り替えると、プラモ用の項目と工程で記録できます。</div></li>
     </ul>`);
   pages.push(()=>`<h2 id="intro-title">工程はボタンひとつで進められます</h2>
     <p>キットを開いて「次の工程に進める」を押すと、その日の日付で記録されます。押し間違えたら「1つ戻す」で取り消せます。</p>

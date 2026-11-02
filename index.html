@@ -201,6 +201,15 @@ form{display:grid;gap:14px}
 .filled{animation:fill 1.6s ease-out}
 @keyframes fill{from{background:color-mix(in srgb,var(--tape) 35%,var(--surface))}}
 
+/* ガレキ／プラモ */
+.kindtoggle{display:grid;grid-template-columns:1fr 1fr;background:var(--sunken);border:1px solid var(--line);border-radius:10px;padding:3px;gap:3px}
+.kindtoggle button{border:0;background:transparent;border-radius:7px;padding:9px 0;font-weight:700;color:var(--muted)}
+.kindtoggle button[aria-checked="true"]{background:var(--tape);color:var(--tape-ink)}
+.kindseg{display:flex;gap:4px;padding-right:8px;margin-right:2px;border-right:1px solid var(--line);flex:none}
+.chip.kchip[aria-pressed="true"]{background:var(--tape);color:var(--tape-ink);border-color:var(--tape)}
+.kindtag{font-size:11px;font-weight:700;padding:0 6px;border-radius:4px;border:1px solid var(--tape);color:var(--tape)}
+.ovk{margin:6px 0 0;font-size:13px;color:var(--muted);font-weight:500}
+
 /* 一覧の補助（PCの右側に出す概要） */
 .overview{display:grid;gap:16px;padding-block:24px}
 .overview h2{font-family:var(--f-display);font-weight:400;font-size:20px;margin:0}
@@ -218,6 +227,7 @@ form{display:grid;gap:14px}
 .oldlist .t img{width:100%;height:100%;object-fit:cover;display:block}
 .oldlist .n{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
 .oldlist .d{font-size:12px;color:var(--warn);white-space:nowrap}
+.oldlist .d.fresh{color:var(--muted)}
 .kbd{font-family:var(--f-data);font-size:11px;border:1px solid var(--line);border-radius:4px;padding:0 5px;color:var(--muted)}
 
 /* ---------- PC：一覧と詳細を左右に並べる ---------- */
