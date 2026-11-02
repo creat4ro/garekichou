@@ -202,7 +202,17 @@ function openEditor(k){
   draft=k?JSON.parse(JSON.stringify(k)):{name:"",dealer:"",sculptor:"",scale:"",material:"レジン（キャスト）",event:"",bought:today(),price:"",status:0,check:"",place:"",memo:"",photos:[]};
   newPhotos=[];removed=[];renderEditor();$("#editor").hidden=false;$("#editor").scrollTop=0;
 }
-function field(id,label,type="text",ph=""){return `<div class="f"><label for="e-${id}">${label}</label><input id="e-${id}" name="${id}" type="${type}" ${type==="number"?'inputmode="numeric" min="0"':""} placeholder="${ph}" value="${esc(draft[id])}"></div>`}
+const SUGGEST=["dealer","sculptor","scale","place"];
+function field(id,label,type="text",ph=""){return `<div class="f"><label for="e-${id}">${label}</label><input id="e-${id}" name="${id}" type="${type}" ${type==="number"?'inputmode="numeric" min="0"':""} ${SUGGEST.includes(id)?`list="dl-${id}" autocomplete="off"`:""} placeholder="${ph}" value="${esc(draft[id])}"></div>`}
+/* 一度入力したディーラー・原型師・スケール・保管場所を、入力候補として出す（よく使うものから） */
+function suggestLists(){
+  return SUGGEST.map(id=>{
+    const n=new Map();
+    for(const k of kits){const v=String(k[id]||"").trim();if(v)n.set(v,(n.get(v)||0)+1)}
+    const vals=[...n.entries()].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0],"ja")).map(e=>e[0]);
+    return `<datalist id="dl-${id}">${vals.map(v=>`<option value="${esc(v)}"></option>`).join("")}</datalist>`;
+  }).join("");
+}
 function renderEditor(){
   $("#editor").innerHTML=`<div class="wrap">
     <div class="bar"><button class="btn ghost" data-a="cancel">キャンセル</button><h2>${draft.id?"キットを編集":"キットを登録"}</h2><button class="btn primary" data-a="save">保存</button></div>
@@ -223,6 +233,7 @@ function renderEditor(){
       <div class="f"><label for="e-check">検品メモ</label><textarea id="e-check" name="check" placeholder="欠品・気泡・歪み、交換依頼の期限など">${esc(draft.check)}</textarea></div>
       <div class="f"><label for="e-memo">メモ</label><textarea id="e-memo" name="memo" placeholder="塗装プラン、改造アイデアなど">${esc(draft.memo)}</textarea></div>
       <p class="err" id="ferr" hidden></p>
+      ${suggestLists()}
     </form></div>`;
   renderPhotos();
 }
