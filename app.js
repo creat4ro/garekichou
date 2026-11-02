@@ -241,6 +241,7 @@ function renderDetail(){
     ${fields.length?`<div class="box"><dl>${fields.map(([a,b])=>`<dt>${a}</dt><dd class="${/価格|購入日/.test(a)?"num":""}">${esc(b)}</dd>`).join("")}</dl></div>`:""}
     ${k.check?`<div class="box"><dl><dt>${isPM(k)?"パーツ確認メモ":"検品メモ"}</dt><dd>${esc(k.check)}</dd></dl></div>`:""}
     ${k.memo?`<div class="box"><dl><dt>メモ</dt><dd>${esc(k.memo)}</dd></dl></div>`:""}
+    <button class="btn wide" data-a="copy">コピーして新しく登録</button>
     <div id="del"><button class="btn danger" data-a="askdel">このキットを削除</button></div>
     </div></div>
   </div>`;
@@ -260,6 +261,7 @@ $("#detail").addEventListener("click",async e=>{
   const k=kits.find(x=>x.id===curId);
   if(a==="close")closeDetail();
   else if(a==="edit")openEditor(k);
+  else if(a==="copy")openCopy(k);
   else if(a==="next"||a==="back"){const s=Math.min(lastStep(k),Math.max(0,k.status+(a==="next"?1:-1)));
     try{await store.putKit({...withStatus(k,s),updatedAt:Date.now()});await refresh();if(a==="next")toast(s>=lastStep(k)?"完成おめでとうございます":"「"+stepsOf(k)[s]+"」に進めました")}catch(_){toast("更新できませんでした")}}
   else if(a==="askdel"){$("#del").innerHTML=`<div class="confirm">写真も含めて削除します。元に戻せません。<button class="btn danger" data-a="del">削除する</button><button class="btn ghost" data-a="nodel">やめる</button></div>`}
@@ -274,7 +276,23 @@ function openEditor(k){
   draft=k?JSON.parse(JSON.stringify(k)):{kind,name:"",dealer:"",sculptor:"",grade:"",scale:"",material:"レジン（キャスト）",event:"",bought:today(),price:"",status:0,check:"",place:"",memo:"",photos:[]};
   if(!draft.kind)draft.kind="gk";
   if(isPM(draft)&&!PM_COURSES.includes(draft.course))draft.course=k?"zentoso":(ls.get("lastCourse")||"suguri");
-  newPhotos=[];removed=[];renderEditor();$("#editor").hidden=false;$("#editor").scrollTop=0;
+  copying=false;newPhotos=[];removed=[];renderEditor();$("#editor").hidden=false;$("#editor").scrollTop=0;
+}
+/* 同じキットを複数買ったときなどに、内容を引き継いで新しく登録する。
+   工程・工程の記録・検品メモは引き継がず、写真は別々に消せるよう複製する */
+let copying=false;
+const COPY_DROP=["id","createdAt","updatedAt","history","deleted"];
+function copyDraft(k){
+  const d=JSON.parse(JSON.stringify(k));for(const f of COPY_DROP)delete d[f];
+  d.status=0;d.check="";d.photos=[];return d;
+}
+async function openCopy(k){
+  draft=copyDraft(k);copying=true;newPhotos=[];removed=[];
+  for(const id of k.photos||[]){
+    try{const b=await store.getPhoto(id);if(!b)continue;const nid=uid();await store.putPhoto(nid,b);urls[nid]=URL.createObjectURL(b);draft.photos.push(nid);newPhotos.push(nid)}catch(_){}
+  }
+  renderEditor();$("#editor").hidden=false;$("#editor").scrollTop=0;
+  toast("コピーしました。違うところを直して保存してください",3000);
 }
 const SUGGEST=["dealer","sculptor","grade","scale","place"];
 function field(id,label,type="text",ph=""){return `<div class="f"><label for="e-${id}">${label}</label><input id="e-${id}" name="${id}" type="${type}" ${type==="number"?'inputmode="numeric" min="0"':""} ${SUGGEST.includes(id)?`list="dl-${id}" autocomplete="off"`:""} placeholder="${ph}" value="${esc(draft[id])}"></div>`}
@@ -289,7 +307,7 @@ function suggestLists(){
 }
 function renderEditor(){
   $("#editor").innerHTML=`<div class="wrap">
-    <div class="bar"><button class="btn ghost" data-a="cancel">キャンセル</button><h2>${draft.id?"キットを編集":"キットを登録"}</h2><button class="btn primary" data-a="save">保存</button></div>
+    <div class="bar"><button class="btn ghost" data-a="cancel">キャンセル</button><h2>${draft.id?"キットを編集":copying?"コピーして登録":"キットを登録"}</h2><button class="btn primary" data-a="save">保存</button></div>
     <form id="kitform" novalidate>
       <div class="kindtoggle" role="radiogroup" aria-label="種類">${KINDS.map(([v,l])=>`<button type="button" role="radio" data-kind="${v}" aria-checked="${draft.kind===v}">${l}</button>`).join("")}</div>
       <div class="f"><span class="flabel">写真</span><div class="photos" id="phs"></div></div>
