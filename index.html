@@ -152,6 +152,54 @@ form{display:grid;gap:14px}
 .err{color:var(--warn);font-size:13px;margin:0}
 .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 84px);transform:translateX(-50%);z-index:30;background:var(--ink);color:var(--bg);padding:8px 16px;border-radius:999px;font-size:13px;max-width:calc(100% - 32px);text-align:center}
 @media (prefers-reduced-motion:no-preference){.sheet{animation:up .18s ease-out}@keyframes up{from{transform:translateY(16px);opacity:.6}}}
+
+/* 一覧の補助（PCの右側に出す概要） */
+.overview{display:grid;gap:16px;padding-block:24px}
+.overview h2{font-family:var(--f-display);font-weight:400;font-size:20px;margin:0}
+.overview .lead{color:var(--muted);font-size:14px;margin:0}
+.stepcount{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
+.stepcount div{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 6px;text-align:center;display:grid;gap:2px}
+.stepcount b{font-family:var(--f-data);font-size:22px;font-variant-numeric:tabular-nums;line-height:1.2}
+.stepcount span{font-size:11px;color:var(--muted)}
+.stepcount .zero b{color:var(--muted);opacity:.5}
+.oldlist{list-style:none;margin:0;padding:0}
+.oldlist li{border-top:1px solid var(--line)}
+.oldlist li:first-child{border-top:0}
+.oldlist button{display:grid;grid-template-columns:44px 1fr auto;gap:12px;align-items:center;width:100%;padding:8px 0;border:0;background:transparent;text-align:left}
+.oldlist .t{width:44px;height:44px;border-radius:6px;background:var(--sunken);overflow:hidden}
+.oldlist .t img{width:100%;height:100%;object-fit:cover;display:block}
+.oldlist .n{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.oldlist .d{font-size:12px;color:var(--warn);white-space:nowrap}
+.kbd{font-family:var(--f-data);font-size:11px;border:1px solid var(--line);border-radius:4px;padding:0 5px;color:var(--muted)}
+
+/* ---------- PC：一覧と詳細を左右に並べる ---------- */
+@media (min-width:960px){
+  :root{--listw:420px}
+  body{padding-bottom:110px}
+  body > .wrap{max-width:var(--listw);margin:0}
+  .card{transition:border-color .12s,background .12s}
+  .card:hover{border-color:color-mix(in srgb,var(--tape) 55%,var(--line))}
+  .card[aria-current="true"]{border-color:var(--tape);background:color-mix(in srgb,var(--tape) 10%,var(--surface));box-shadow:inset 3px 0 0 var(--tape)}
+  .fab{left:max(16px,env(safe-area-inset-left,0px));right:auto;width:var(--listw);border-radius:10px;bottom:18px}
+  #detail{inset:0 0 0 calc(max(16px,env(safe-area-inset-left,0px)) + var(--listw) + 24px);z-index:4;border-left:1px solid var(--line);
+    padding-left:40px;padding-right:40px;animation:none}
+  #detail .wrap{max-width:860px;margin:0 auto}
+  #detail [data-a="close"]{visibility:hidden}
+  #detail .gallery .main{max-height:58vh}
+  #detail .detail-cols{display:grid;gap:16px;grid-template-columns:minmax(0,1fr)}
+  #editor,#backup{inset:4vh 0 auto 0;margin:0 auto;width:min(760px,calc(100vw - 48px));max-height:92vh;border-radius:14px;border:1px solid var(--line);
+    box-shadow:0 0 0 100vmax rgba(10,14,15,.45),0 20px 50px rgba(0,0,0,.25);padding-left:28px;padding-right:28px;padding-bottom:28px}
+  #editor .wrap,#backup .wrap{max-width:none}
+  #editor .bar,#backup .bar{padding-top:18px}
+  .photos{grid-template-columns:repeat(auto-fill,minmax(110px,1fr))}
+}
+@media (min-width:1280px){
+  :root{--listw:460px}
+  #detail .wrap{max-width:1040px}
+  #detail .detail-cols{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);align-items:start}
+  #detail .detail-cols > .gallery{position:sticky;top:64px}
+  #detail .detail-cols .gallery .main{max-height:70vh}
+}
 </style>
 </head>
 <body>
@@ -268,7 +316,7 @@ async function refresh(){
     await ensureUrls(kits.flatMap(k=>k.photos||[]));
   }catch(e){failed=true}
   loaded=true;render();
-  if(curId&&!$("#detail").hidden)renderDetail();
+  if(wide||(curId&&!$("#detail").hidden))renderDetail();
 }
 
 /* ---------- 一覧 ---------- */
@@ -296,7 +344,7 @@ function render(){
     const d=daysSince(k.bought), old=k.status<6&&d!=null&&d>=365;
     const sub=[k.dealer,k.sculptor&&("原型 "+k.sculptor),k.scale].filter(Boolean).join(" ／ ");
     const p=k.photos?.[0];
-    return `<button class="card" data-id="${esc(k.id)}">
+    return `<button class="card" data-id="${esc(k.id)}" ${wide&&k.id===curId?'aria-current="true"':""}>
       <div class="thumb">${p&&src(p)?`<img src="${src(p)}" alt="">`:"写真なし"}</div>
       <div class="meta">
         <div class="name">${esc(k.name||"名称未入力")}</div>
@@ -315,16 +363,33 @@ $("#openBackup").addEventListener("click",()=>openBackup());
 
 /* ---------- 詳細 ---------- */
 let curId=null;
-function openDetail(id){curId=id;renderDetail();$("#detail").hidden=false;$("#detail").scrollTop=0}
-function closeDetail(){$("#detail").hidden=true;curId=null}
+const wideMQ=matchMedia("(min-width:960px)");let wide=wideMQ.matches;
+function openDetail(id){curId=id;renderDetail();$("#detail").hidden=false;$("#detail").scrollTop=0;if(wide)render()}
+function closeDetail(){curId=null;if(wide){renderDetail();render()}else $("#detail").hidden=true}
+function onWideChange(){wide=wideMQ.matches;if(wide){$("#detail").hidden=false;renderDetail()}else if(!curId)$("#detail").hidden=true;render()}
+wideMQ.addEventListener?wideMQ.addEventListener("change",onWideChange):wideMQ.addListener(onWideChange);
+function renderOverview(){
+  const el=$("#detail");
+  if(!loaded){el.innerHTML="";return}
+  if(!kits.length){el.innerHTML=`<div class="wrap"><div class="overview"><h2>ようこそ</h2><p class="lead">左下の「キットを登録」から、箱の写真と一緒に1つ目を追加しましょう。前の機種やスマホのバックアップがある場合は、左上の「バックアップ」から読み込めます。</p></div></div>`;return}
+  const cnt=STEPS.map((_,i)=>kits.filter(k=>k.status===i).length);
+  const old=kits.filter(k=>k.status<6&&daysSince(k.bought)!=null).sort((a,b)=>(a.bought||"").localeCompare(b.bought||"")).slice(0,6);
+  el.innerHTML=`<div class="wrap"><div class="overview">
+    <div><h2>積みの状況</h2><p class="lead">左の一覧からキットを選ぶと、ここに詳細が表示されます。<span class="kbd">↑</span> <span class="kbd">↓</span> でも移動できます。</p></div>
+    <div class="stepcount">${STEPS.map((s,i)=>`<div class="${cnt[i]?"":"zero"}"><b>${cnt[i]}</b><span>${s}</span></div>`).join("")}</div>
+    ${old.length?`<div class="box"><h3>長く積んでいるキット</h3><ul class="oldlist">${old.map(k=>{const p=k.photos?.[0];return `<li><button type="button" data-open="${esc(k.id)}"><span class="t">${p&&src(p)?`<img src="${src(p)}" alt="">`:""}</span><span class="n">${esc(k.name)}</span><span class="d">${ageLabel(k)}</span></button></li>`}).join("")}</ul></div>`:""}
+  </div></div>`;
+}
 function renderDetail(){
-  const k=kits.find(x=>x.id===curId);if(!k){closeDetail();return}
+  const k=kits.find(x=>x.id===curId);if(!k){if(wide){curId=null;renderOverview()}else closeDetail();return}
   const fields=[["ディーラー",k.dealer],["原型師",k.sculptor],["スケール",k.scale],["素材",k.material],["入手",k.event],
     ["購入日",k.bought],["価格",k.price!=null&&k.price!==""?"¥"+Number(k.price).toLocaleString("ja-JP"):""],["保管場所",k.place]].filter(f=>f[1]);
   const ps=(k.photos||[]).filter(src);
   $("#detail").innerHTML=`<div class="wrap">
     <div class="bar"><button class="btn ghost" data-a="close">← 一覧</button><h2>${esc(k.name)}</h2><button class="btn" data-a="edit">編集</button></div>
+    <div class="detail-cols">
     <div class="gallery">${ps.length?`<img class="main" id="mainph" src="${src(ps[0])}" alt="${esc(k.name)}の写真">${ps.length>1?`<div class="thumbs">${ps.map((p,i)=>`<button type="button" data-ph="${esc(p)}" aria-pressed="${i===0}" aria-label="写真${i+1}を表示"><img src="${src(p)}" alt=""></button>`).join("")}</div>`:""}`:`<div class="none">写真はまだありません</div>`}</div>
+    <div style="display:grid;gap:16px;min-width:0">
     <div><p class="dname">${esc(k.name||"名称未入力")}</p><div class="row" style="margin-top:6px">${pill(k.status)}<span class="age">${ageLabel(k)}</span></div></div>
     <div class="advance">${stepsBar(k.status)}
       <div class="stepnames">${STEPS.map((s,i)=>`<span class="${i===k.status?"cur":""}">${s}</span>`).join("")}</div>
@@ -337,6 +402,7 @@ function renderDetail(){
     ${k.check?`<div class="box"><dl><dt>検品メモ</dt><dd>${esc(k.check)}</dd></dl></div>`:""}
     ${k.memo?`<div class="box"><dl><dt>メモ</dt><dd>${esc(k.memo)}</dd></dl></div>`:""}
     <div id="del"><button class="btn danger" data-a="askdel">このキットを削除</button></div>
+    </div></div>
   </div>`;
 }
 $("#detail").addEventListener("change",async e=>{
@@ -348,6 +414,7 @@ $("#detail").addEventListener("change",async e=>{
   try{await store.putKit({...k,history:h,updatedAt:Date.now()});await refresh();toast("日付を直しました")}catch(_){toast("保存できませんでした")}
 });
 $("#detail").addEventListener("click",async e=>{
+  const op=e.target.closest("[data-open]");if(op){openDetail(op.dataset.open);return}
   const ph=e.target.closest("[data-ph]");if(ph){$("#mainph").src=src(ph.dataset.ph);ph.parentElement.querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed",b===ph));return}
   const a=e.target.closest("[data-a]")?.dataset.a;if(!a)return;
   const k=kits.find(x=>x.id===curId);
@@ -503,6 +570,21 @@ async function importBackup(file,input){
 }
 
 /* ---------- 起動 ---------- */
+document.addEventListener("keydown",e=>{
+  if(e.target.closest("input,textarea,select"))return;
+  if(e.key==="Escape"){
+    if(!$("#editor").hidden){$("#editor [data-a=cancel]")?.click();return}
+    if(!$("#backup").hidden){$("#backup").hidden=true;render();return}
+    if(curId)closeDetail();return;
+  }
+  if(!wide||!$("#editor").hidden||!$("#backup").hidden)return;
+  if(e.key==="ArrowDown"||e.key==="ArrowUp"){
+    const ids=[...document.querySelectorAll("#list .card")].map(c=>c.dataset.id);if(!ids.length)return;
+    e.preventDefault();let i=ids.indexOf(curId);i=i<0?0:Math.max(0,Math.min(ids.length-1,i+(e.key==="ArrowDown"?1:-1)));
+    openDetail(ids[i]);document.querySelector(`#list .card[data-id="${CSS.escape(ids[i])}"]`)?.scrollIntoView({block:"nearest"});
+  }
+});
+if(wide)$("#detail").hidden=false;
 render();
 if(!("indexedDB" in window)){failed=true;loaded=true;render()}else refresh();
 if("serviceWorker" in navigator&&location.protocol==="https:")navigator.serviceWorker.register("sw.js").catch(()=>{});

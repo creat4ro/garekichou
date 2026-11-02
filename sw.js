@@ -1,6 +1,6 @@
 // ガレキ積み帳 オフライン用サービスワーカー
 // 画面を更新したら VERSION の数字を上げると、スマホ側も新しい版に切り替わります。
-const VERSION = "v2";
+const VERSION = "v3";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon-180.png", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", e => {
