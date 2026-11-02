@@ -242,8 +242,8 @@ function eventOptions(){
   const groups=[];
   if(mine.size)groups.push(["これまでに入力したイベント",[...mine.values()].sort((a,b)=>b[1].localeCompare(a[1])).slice(0,20)]);
   const ev=typeof EVENTS!=="undefined"?EVENTS:[];
-  groups.push(["ワンダーフェスティバル",ev.filter(e=>e[0].startsWith("ワンダーフェスティバル"))]);
-  groups.push(["トレジャーフェスタ",ev.filter(e=>e[0].startsWith("トレジャーフェスタ"))]);
+  for(const series of ["ワンダーフェスティバル","となりのモケイフェスティバル","トレジャーフェスタ"])
+    groups.push([series,ev.filter(e=>e[0].startsWith(series))]);
   return groups.filter(g=>g[1].length).map(([l,list])=>`<optgroup label="${esc(l)}">${list.map(opt).join("")}</optgroup>`).join("");
 }
 async function shrink(file){
