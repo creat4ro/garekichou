@@ -7,6 +7,7 @@
 @media (prefers-color-scheme: dark){:root{
   --bg:#161A1B; --surface:#202627; --ink:#E6EBEA; --muted:#97A2A1; --line:#323A3B; --tape:#E8C14E; --tape-ink:#211A05; color-scheme:dark}}
 *{box-sizing:border-box}
+html{background:var(--bg);min-height:100%}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.8;
   padding-top:env(safe-area-inset-top,0px);padding-bottom:calc(env(safe-area-inset-bottom,0px) + 48px);
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
