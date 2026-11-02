@@ -34,9 +34,15 @@ function changeCourse(k,kind,course){
   /* 今の工程は、記録の中で新しい工程にもある一番新しいものに合わせる（行って戻したときに元の工程に戻るように）。
      記録がなければ名前で合わせる。完成していたものは完成のまま、完成していなければ完成にはしない */
   const last=Math.max(0,from.length-1), nlast=to.length-1;
+  /* 記録の最後が今の工程と一致しているとき（ふつうの状態）だけ記録を使う。
+     編集画面で工程を変えた直後など一致しないときは、今の工程の名前で合わせる */
   let st=-1;
   if(cur>=last)st=nlast;
-  else{for(let i=nk.history.length-1;i>=0;i--){if(nk.history[i].s>=0){st=Math.min(nk.history[i].s,nlast-1);break}}}
+  else{
+    const ol=(k.history||[]).slice().reverse().find(e=>e.s>=0);
+    const consistent=ol&&ol.s===cur;
+    if(consistent){for(let i=nk.history.length-1;i>=0;i--){if(nk.history[i].s>=0){st=Math.min(nk.history[i].s,nlast-1);break}}}
+  }
   nk.status=st>=0?st:mapStep(from,cur,to);
   return nk;
 }
@@ -59,9 +65,11 @@ function withStatus(k,s){
   const h=Array.isArray(k.history)?k.history.slice():[];
   if(s===k.status)return {...k,history:h};
   if(s<k.status){
-    /* 戻すときは、今の工程の記録と、それより後に付いた記録（作り方を変える前の工程など）を取り消す */
+    /* 戻すときは、今の工程の記録と、戻した先の工程より後に付いた記録（作り方を変える前の工程など）を取り消す */
     let idx=-1;for(let i=h.length-1;i>=0;i--){if(h[i].s===k.status){idx=i;break}}
     if(idx>=0)h.splice(idx);
+    let j=-1;for(let i=h.length-1;i>=0;i--){if(h[i].s===s){j=i;break}}
+    if(j>=0)h.splice(j+1);
     let lm=null;for(let i=h.length-1;i>=0;i--){if(h[i].s>=0){lm=h[i];break}}
     if(!lm||lm.s!==s)h.push({s,at:Date.now(),n:stepsOf(k)[s]});
   }
@@ -380,21 +388,25 @@ $("#editor").addEventListener("click",async e=>{
   if(a==="save")save();
 });
 $("#editor").addEventListener("submit",e=>{e.preventDefault();save()});
+/* 編集内容を保存する形にする（工程の記録をつけ直す）。テストしやすいよう画面から切り離してある */
+function applyEdit(prev,k){
+  k={...k};
+  if(!prev)k.history=[{s:k.status,at:Date.now(),n:stepsOf(k)[k.status]}];
+  else{
+    /* 種類・作り方を変えた場合は、元の記録を新しい工程に合わせてから比べる */
+    const base=courseOf(prev)!==courseOf(k)?changeCourse(prev,k.kind,k.course):prev;
+    k.history=base.history||[];
+    if(base.status!==k.status)k.history=withStatus({...k,status:base.status},k.status).history;
+  }
+  if(!isPM(k))delete k.course;
+  return k;
+}
 async function save(){
   readForm();const err=$("#ferr");
   if(!draft.name){err.textContent="キット名を入力してください。";err.hidden=false;$("#e-name").focus();return}
   if(busy){err.textContent="写真の取り込みが終わるまでお待ちください。";err.hidden=false;return}
   const isNew=!draft.id;
-  let k={...draft,id:draft.id||uid(),updatedAt:Date.now(),createdAt:draft.createdAt||Date.now()};
-  if(isNew)k.history=[{s:k.status,at:Date.now(),n:stepsOf(k)[k.status]}];
-  else{const prev=kits.find(x=>x.id===k.id);
-    if(prev){
-      /* 種類・作り方を変えた場合は、元の記録を新しい工程に合わせてから比べる */
-      const base=courseOf(prev)!==courseOf(k)?changeCourse(prev,k.kind,k.course):prev;
-      k.history=base.history||[];
-      if(base.status!==k.status)k.history=withStatus({...k,status:base.status},k.status).history;
-    }}
-  if(!isPM(k))delete k.course;
+  const k=applyEdit(isNew?null:kits.find(x=>x.id===draft.id),{...draft,id:draft.id||uid(),updatedAt:Date.now(),createdAt:draft.createdAt||Date.now()});
   try{
     await store.putKit(k);
     for(const p of removed)await removePhoto(p);
