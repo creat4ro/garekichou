@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ガレキ積み帳</title>
+<meta name="theme-color" content="#ECEEEE" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#161A1B" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="積み帳">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: a workbench shelf — sticky header with stock summary, filter chips, a single column of kit cards; detail, edit and backup open as full-height sheets. */
+:root{
+  --bg:#ECEEEE; --surface:#F9FAFA; --sunken:#E2E6E5; --ink:#1D2223; --muted:#636D6C; --line:#D2D8D7;
+  --tape:#E6BC3A; --tape-ink:#2A2208; --done:#3E8A5E; --warn:#B4532A;
+  --f-display:"Dela Gothic One","Zen Kaku Gothic New","Hiragino Sans",system-ui,sans-serif;
+  --f-body:"Zen Kaku Gothic New","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
+  --f-data:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  --r:10px; color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root{
+  --bg:#161A1B; --surface:#202627; --sunken:#1A1F20; --ink:#E6EBEA; --muted:#97A2A1; --line:#323A3B;
+  --tape:#E8C14E; --tape-ink:#211A05; --done:#5DB582; --warn:#E07A4E; color-scheme:dark}}
+
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.55;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-bottom:calc(env(safe-area-inset-bottom,0px) + 96px)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+img{max-width:100%}
+[hidden]{display:none!important}
+.wrap{max-width:640px;margin:0 auto}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;-webkit-tap-highlight-color:transparent}
+:focus-visible{outline:2px solid var(--tape);outline-offset:2px}
+.num{font-family:var(--f-data);font-variant-numeric:tabular-nums}
+
+header{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:14px 10px;display:grid;gap:10px;grid-template-columns:minmax(0,1fr)}
+.brand{display:flex;align-items:center;justify-content:space-between;gap:6px 12px;flex-wrap:wrap}
+h1{font-family:var(--f-display);font-weight:400;font-size:22px;margin:0;letter-spacing:.02em;white-space:nowrap}
+h1 span{display:inline-block;background:var(--tape);color:var(--tape-ink);padding:0 8px;transform:rotate(-1.5deg);margin-right:2px}
+.brand-r{display:flex;align-items:center;gap:10px;min-width:0}
+.stock{font-size:13px;color:var(--muted);white-space:nowrap}
+.stock b{color:var(--ink);font-family:var(--f-data);font-size:15px}
+.iconbtn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:5px 9px;font-size:12px;color:var(--muted);white-space:nowrap}
+.tools{display:flex;gap:8px}
+.tools input,.tools select{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-width:0;font-size:16px}
+.tools input{flex:1}
+.tools select{flex:none;max-width:42%}
+.chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding:2px}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:4px 12px;font-size:13px;color:var(--muted)}
+.chip .num{font-size:11px;margin-left:4px}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+
+.list{display:grid;gap:10px;padding-top:4px;grid-template-columns:minmax(0,1fr)}
+.card{display:grid;grid-template-columns:76px 1fr;gap:12px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px;text-align:left;width:100%}
+.thumb{width:76px;height:76px;border-radius:7px;background:var(--sunken);display:grid;place-items:center;color:var(--muted);font-size:11px;overflow:hidden}
+.thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.card .meta{min-width:0;display:grid;gap:3px}
+.card .name{font-weight:700;font-size:15px;line-height:1.35;overflow-wrap:anywhere}
+.card .sub{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.pill{font-size:11px;font-weight:700;padding:1px 8px;border-radius:4px;background:var(--sunken);color:var(--muted);letter-spacing:.04em}
+.pill.s6{background:var(--done);color:var(--surface)}
+.pill.wip{background:var(--tape);color:var(--tape-ink)}
+.age{font-size:11px;color:var(--muted)}
+.age.old{color:var(--warn)}
+.steps{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;width:100%;max-width:140px}
+.steps i{height:4px;border-radius:2px;background:var(--line)}
+.steps i.on{background:var(--tape)}
+.steps.done i.on{background:var(--done)}
+
+.empty,.notice{background:var(--surface);border:1px dashed var(--line);border-radius:var(--r);padding:24px 18px;text-align:center;color:var(--muted);font-size:14px}
+.notice{border-style:solid;text-align:left;font-size:13px}
+.remind{display:flex;gap:10px;align-items:center;justify-content:space-between;background:color-mix(in srgb,var(--tape) 20%,var(--surface));border:1px solid var(--tape);border-radius:var(--r);padding:8px 12px;font-size:13px}
+
+.fab{position:fixed;right:max(18px,calc(env(safe-area-inset-right,0px) + 18px));bottom:calc(env(safe-area-inset-bottom,0px) + 18px);z-index:6;
+  background:var(--tape);color:var(--tape-ink);border:0;border-radius:999px;padding:14px 22px;font-weight:700;font-size:15px;box-shadow:0 6px 18px rgba(0,0,0,.18)}
+
+.sheet{position:fixed;inset:0;z-index:20;background:var(--bg);overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:calc(env(safe-area-inset-bottom,0px) + 32px);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.sheet .wrap{display:grid;gap:16px;grid-template-columns:minmax(0,1fr)}
+.bar{position:sticky;top:0;z-index:2;background:var(--bg);display:flex;align-items:center;justify-content:space-between;gap:8px;padding-block:12px 8px;border-bottom:1px solid var(--line)}
+.bar h2{font-size:16px;margin:0;font-weight:700;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 14px;font-size:14px;font-weight:500}
+.btn.primary{background:var(--tape);color:var(--tape-ink);border-color:var(--tape);font-weight:700}
+.btn.ghost{background:transparent;border-color:transparent;color:var(--muted)}
+.btn.danger{color:var(--warn);border-color:var(--warn);background:transparent}
+.btn:disabled{opacity:.5;cursor:default}
+.btn.wide{width:100%;padding:12px}
+
+.gallery{display:grid;gap:8px;min-width:0}
+.gallery .main{width:100%;max-height:62vh;object-fit:contain;border-radius:var(--r);background:var(--sunken);display:block}
+.gallery .thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:6px}
+.gallery .thumbs button{padding:0;border:2px solid transparent;border-radius:7px;overflow:hidden;aspect-ratio:1;background:var(--sunken)}
+.gallery .thumbs button[aria-pressed="true"]{border-color:var(--tape)}
+.gallery .thumbs img{width:100%;height:100%;object-fit:cover;display:block}
+.gallery .none{width:100%;aspect-ratio:16/9;border-radius:var(--r);background:var(--sunken);display:grid;place-items:center;color:var(--muted);font-size:13px}
+.dname{font-size:20px;font-weight:700;margin:0;text-wrap:balance;line-height:1.35}
+.advance{display:grid;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px}
+.advance .steps{max-width:none}
+.advance .steps i{height:6px}
+.stepnames{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;font-size:10px;color:var(--muted);text-align:center}
+.stepnames .cur{color:var(--ink);font-weight:700}
+dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:8px 16px;font-size:14px}
+dt{color:var(--muted);font-size:12px;letter-spacing:.06em;padding-top:2px}
+dd{margin:0;min-width:0;overflow-wrap:anywhere;white-space:pre-wrap}
+.box{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px}
+.box h3{margin:0 0 4px;font-size:15px}
+.box p{margin:0 0 10px;font-size:13px;color:var(--muted)}
+.log{display:grid;gap:0;margin:0;padding:0;list-style:none}
+.log li{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:7px 0;border-top:1px solid var(--line);font-size:14px}
+.log li:first-child{border-top:0}
+.log .dot{width:10px;height:10px;border-radius:50%;background:var(--tape)}
+.log li.s6 .dot{background:var(--done)}
+.log .st{font-weight:700;min-width:0}
+.log .dur{font-size:12px;color:var(--muted);font-weight:400;margin-left:6px}
+.log input{font-family:var(--f-data);font-variant-numeric:tabular-nums;font-size:14px;background:transparent;border:1px solid transparent;border-radius:6px;padding:2px 4px;color:var(--muted);min-width:0}
+.log input:focus{border-color:var(--line);background:var(--surface)}
+.box h3 .sub{font-weight:400;font-size:12px;color:var(--muted);margin-left:6px}
+.confirm{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px;color:var(--warn)}
+
+form{display:grid;gap:14px}
+.f{display:grid;gap:4px}
+.f label,.flabel{font-size:12px;color:var(--muted);letter-spacing:.06em}
+.f input,.f select,.f textarea{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px;width:100%;min-width:0;font-size:16px}
+.f input[type="date"]{min-height:44px;-webkit-appearance:none;appearance:none}
+.f textarea{min-height:70px;resize:vertical}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.two>*{min-width:0}
+.seg{display:flex;flex-wrap:wrap;gap:6px}
+.seg button{border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:6px 10px;font-size:13px}
+.seg button[aria-pressed="true"]{background:var(--tape);color:var(--tape-ink);border-color:var(--tape);font-weight:700}
+.photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:8px}
+.ph{position:relative;aspect-ratio:1;border-radius:8px;overflow:hidden;background:var(--sunken)}
+.ph img{width:100%;height:100%;object-fit:cover;display:block}
+.ph button{position:absolute;top:4px;right:4px;width:26px;height:26px;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;font-size:15px;line-height:1}
+.ph.up{display:grid;place-items:center;font-size:11px;color:var(--muted)}
+.addph{position:relative;aspect-ratio:1;border:1.5px dashed var(--line);border-radius:8px;display:grid;place-items:center;text-align:center;font-size:12px;color:var(--muted)}
+.addph input,.filepick input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:40px}
+.filepick{position:relative;display:block}
+.err{color:var(--warn);font-size:13px;margin:0}
+.toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 84px);transform:translateX(-50%);z-index:30;background:var(--ink);color:var(--bg);padding:8px 16px;border-radius:999px;font-size:13px;max-width:calc(100% - 32px);text-align:center}
+@media (prefers-reduced-motion:no-preference){.sheet{animation:up .18s ease-out}@keyframes up{from{transform:translateY(16px);opacity:.6}}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <h1><span>ガレキ</span>積み帳</h1>
+      <div class="brand-r">
+        <div class="stock" id="stock">読み込み中…</div>
+        <button class="iconbtn" id="openBackup">バックアップ</button>
+      </div>
+    </div>
+    <div class="tools">
+      <input id="q" type="search" placeholder="検索（キット名・原型師など）" aria-label="検索">
+      <select id="sort" aria-label="並び順">
+        <option value="old">積みが古い順</option>
+        <option value="new">新しい順</option>
+        <option value="name">名前順</option>
+      </select>
+    </div>
+    <div class="chips" id="chips" role="toolbar" aria-label="工程で絞り込み"></div>
+  </header>
+  <main id="list" class="list"></main>
+</div>
+<button class="fab" id="fab">＋ キットを登録</button>
+<section class="sheet" id="detail" hidden></section>
+<section class="sheet" id="editor" hidden></section>
+<section class="sheet" id="backup" hidden></section>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+"use strict";
+const STEPS=["未開封","検品済","洗浄","仮組","サフ","塗装","完成"];
+const MATERIALS=["レジン","ソフビ","メタル","その他"];
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const uid=()=>(crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2,10));
+const ymd=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+const today=()=>ymd(new Date());
+const ls={get(k){try{return localStorage.getItem(k)}catch(_){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(_){}}};
+function daysSince(s){if(!s)return null;const t=Date.parse(s+"T00:00:00");if(isNaN(t))return null;return Math.max(0,Math.floor((Date.now()-t)/864e5))}
+function ageLabel(k){if(k.status===6)return "完成";const d=daysSince(k.bought);if(d==null)return "";if(d>=365)return "積み "+Math.floor(d/365)+"年"+Math.floor(d%365/30)+"ヶ月";if(d>=30)return "積み "+Math.floor(d/30)+"ヶ月";return "積み "+d+"日"}
+function stepsBar(n){return `<div class="steps${n===6?" done":""}" aria-hidden="true">${STEPS.map((_,i)=>`<i class="${i<=n?"on":""}"></i>`).join("")}</div>`}
+function pill(n){return `<span class="pill ${n===6?"s6":n>=2?"wip":""}">${STEPS[n]}</span>`}
+const DAY=864e5;
+const fmtDate=t=>ymd(new Date(t));
+/* 工程の記録：進めたら追加、「1つ戻す」は直前の記録を取り消す */
+function withStatus(k,s){
+  const h=Array.isArray(k.history)?k.history.slice():[];
+  if(s===k.status)return {...k,history:h};
+  const last=h[h.length-1];
+  if(s<k.status&&last&&last.s===k.status){h.pop();if(!h.length||h[h.length-1].s!==s)h.push({s,at:Date.now()})}
+  else h.push({s,at:Date.now()});
+  return {...k,status:s,history:h};
+}
+function daysLabel(ms){const d=Math.floor(ms/DAY);return d<1?"1日未満":d+"日"}
+function logBox(k){
+  const h=(k.history||[]).map((e,i)=>({...e,i}));
+  if(!h.length)return `<div class="box"><h3>工程の記録</h3><p style="margin:0">工程を進めると、その日付がここに自動で記録されます。</p></div>`;
+  const rows=h.slice().reverse().map(e=>{
+    const next=h[e.i+1];const span=(next?next.at:Date.now())-e.at;
+    const dur=e.s===6&&!next?"":(next?`${daysLabel(span)}`:`継続中・${daysLabel(span)}`);
+    return `<li class="s${e.s}"><span class="dot" aria-hidden="true"></span><span class="st">${STEPS[e.s]}<span class="dur">${dur}</span></span><input type="date" data-log="${e.i}" value="${fmtDate(e.at)}" aria-label="${STEPS[e.s]}になった日"></li>`}).join("");
+  const first=h[0], end=k.status===6?h[h.length-1].at:Date.now();
+  const total=h.length>1||k.status!==first.s?`<span class="sub">記録開始から${daysLabel(end-first.at)}</span>`:"";
+  return `<div class="box"><h3>工程の記録${total}</h3><ul class="log">${rows}</ul><p style="margin:6px 0 0;font-size:12px">日付をタップすると修正できます。</p></div>`;
+}
+function toast(m,ms=2200){const t=$("#toast");t.textContent=m;t.hidden=false;clearTimeout(toast._t);toast._t=setTimeout(()=>t.hidden=true,ms)}
+
+/* ---------- 端末内の保存先（IndexedDB） ---------- */
+const store=(()=>{
+  let dbp=null;
+  function open(){
+    if(dbp)return dbp;
+    dbp=new Promise((res,rej)=>{
+      const r=indexedDB.open("garekichou",1);
+      r.onupgradeneeded=()=>{const d=r.result;if(!d.objectStoreNames.contains("kits"))d.createObjectStore("kits",{keyPath:"id"});if(!d.objectStoreNames.contains("photos"))d.createObjectStore("photos")};
+      r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);
+    });
+    return dbp;
+  }
+  async function tx(name,mode,fn){
+    const d=await open();
+    return new Promise((res,rej)=>{
+      const t=d.transaction(name,mode);const s=t.objectStore(name);let out;
+      const r=fn(s);if(r)r.onsuccess=()=>{out=r.result};
+      t.oncomplete=()=>res(out);t.onerror=()=>rej(t.error);t.onabort=()=>rej(t.error);
+    });
+  }
+  return{
+    allKits:()=>tx("kits","readonly",s=>s.getAll()),
+    putKit:k=>tx("kits","readwrite",s=>s.put(k)),
+    delKit:id=>tx("kits","readwrite",s=>s.delete(id)),
+    getPhoto:id=>tx("photos","readonly",s=>s.get(id)),
+    putPhoto:(id,b)=>tx("photos","readwrite",s=>s.put(b,id)),
+    delPhoto:id=>tx("photos","readwrite",s=>s.delete(id)),
+  };
+})();
+const urls={};
+async function ensureUrls(ids){
+  for(const id of ids){
+    if(urls[id])continue;
+    try{const b=await store.getPhoto(id);if(b)urls[id]=URL.createObjectURL(b)}catch(_){}
+  }
+}
+const src=id=>urls[id]||"";
+async function removePhoto(id){try{await store.delPhoto(id)}catch(_){}if(urls[id]){URL.revokeObjectURL(urls[id]);delete urls[id]}}
+async function askPersist(){try{if(navigator.storage?.persist&&!(await navigator.storage.persisted()))await navigator.storage.persist()}catch(_){}}
+
+let kits=[], loaded=false, filter=ls.get("f")||"all", failed=false;
+async function refresh(){
+  try{
+    kits=(await store.allKits()).map(k=>({...k,status:Number(k.status)||0}));
+    await ensureUrls(kits.flatMap(k=>k.photos||[]));
+  }catch(e){failed=true}
+  loaded=true;render();
+  if(curId&&!$("#detail").hidden)renderDetail();
+}
+
+/* ---------- 一覧 ---------- */
+function group(k){return k.status===6?"done":k.status<=1?"todo":"wip"}
+function render(){
+  const total=kits.length, done=kits.filter(k=>k.status===6).length;
+  $("#stock").innerHTML=loaded?`積み <b>${total-done}</b>・完成 <b>${done}</b>`:"読み込み中…";
+  const counts={all:total,todo:0,wip:0,done:0};kits.forEach(k=>counts[group(k)]++);
+  const defs=[["all","すべて"],["todo","未着手"],["wip","作業中"],["done","完成"]];
+  $("#chips").innerHTML=defs.map(([v,l])=>`<button class="chip" data-f="${v}" aria-pressed="${filter===v}">${l}<span class="num">${counts[v]}</span></button>`).join("");
+  const q=$("#q").value.trim().toLowerCase(), sort=$("#sort").value;
+  let rows=kits.filter(k=>filter==="all"||group(k)===filter)
+    .filter(k=>!q||[k.name,k.dealer,k.sculptor,k.event,k.place].join(" ").toLowerCase().includes(q));
+  rows.sort((a,b)=>sort==="name"?(a.name||"").localeCompare(b.name||"","ja"):
+    sort==="new"?(b.bought||"").localeCompare(a.bought||""):(a.bought||"9999").localeCompare(b.bought||"9999"));
+  const list=$("#list");
+  if(!loaded){list.innerHTML="";return}
+  if(failed){list.innerHTML=`<div class="notice">このブラウザでは端末内にデータを保存できませんでした。プライベートブラウズを使っている場合は、通常のタブで開いてください。</div>`;return}
+  let html="";
+  const last=Number(ls.get("lastBackup")||0);
+  if(total&&Date.now()-last>30*864e5)html+=`<div class="remind"><span>${last?"最後のバックアップから30日以上たっています。":"まだバックアップがありません。"}</span><button class="btn" data-open-backup>保存する</button></div>`;
+  if(!total){list.innerHTML=html+`<div class="empty">まだキットがありません。<br>右下の「キットを登録」から、箱の写真と一緒に1つ目を追加しましょう。<br><br>前の機種のバックアップがある場合は、右上の「バックアップ」から読み込めます。</div>`;return}
+  if(!rows.length){list.innerHTML=html+`<div class="empty">条件に合うキットはありません。</div>`;return}
+  list.innerHTML=html+rows.map(k=>{
+    const d=daysSince(k.bought), old=k.status<6&&d!=null&&d>=365;
+    const sub=[k.dealer,k.sculptor&&("原型 "+k.sculptor),k.scale].filter(Boolean).join(" ／ ");
+    const p=k.photos?.[0];
+    return `<button class="card" data-id="${esc(k.id)}">
+      <div class="thumb">${p&&src(p)?`<img src="${src(p)}" alt="">`:"写真なし"}</div>
+      <div class="meta">
+        <div class="name">${esc(k.name||"名称未入力")}</div>
+        ${sub?`<div class="sub">${esc(sub)}</div>`:""}
+        <div class="row">${pill(k.status)}<span class="age ${old?"old":""}">${ageLabel(k)}</span></div>
+        ${stepsBar(k.status)}
+      </div></button>`}).join("");
+}
+$("#chips").addEventListener("click",e=>{const b=e.target.closest("[data-f]");if(!b)return;filter=b.dataset.f;ls.set("f",filter);render()});
+$("#q").addEventListener("input",render);
+$("#sort").addEventListener("change",()=>{ls.set("s",$("#sort").value);render()});
+$("#list").addEventListener("click",e=>{if(e.target.closest("[data-open-backup]"))return openBackup();const c=e.target.closest(".card");if(c)openDetail(c.dataset.id)});
+$("#fab").addEventListener("click",()=>openEditor(null));
+$("#openBackup").addEventListener("click",()=>openBackup());
+{const s=ls.get("s");if(s)$("#sort").value=s}
+
+/* ---------- 詳細 ---------- */
+let curId=null;
+function openDetail(id){curId=id;renderDetail();$("#detail").hidden=false;$("#detail").scrollTop=0}
+function closeDetail(){$("#detail").hidden=true;curId=null}
+function renderDetail(){
+  const k=kits.find(x=>x.id===curId);if(!k){closeDetail();return}
+  const fields=[["ディーラー",k.dealer],["原型師",k.sculptor],["スケール",k.scale],["素材",k.material],["入手",k.event],
+    ["購入日",k.bought],["価格",k.price!=null&&k.price!==""?"¥"+Number(k.price).toLocaleString("ja-JP"):""],["保管場所",k.place]].filter(f=>f[1]);
+  const ps=(k.photos||[]).filter(src);
+  $("#detail").innerHTML=`<div class="wrap">
+    <div class="bar"><button class="btn ghost" data-a="close">← 一覧</button><h2>${esc(k.name)}</h2><button class="btn" data-a="edit">編集</button></div>
+    <div class="gallery">${ps.length?`<img class="main" id="mainph" src="${src(ps[0])}" alt="${esc(k.name)}の写真">${ps.length>1?`<div class="thumbs">${ps.map((p,i)=>`<button type="button" data-ph="${esc(p)}" aria-pressed="${i===0}" aria-label="写真${i+1}を表示"><img src="${src(p)}" alt=""></button>`).join("")}</div>`:""}`:`<div class="none">写真はまだありません</div>`}</div>
+    <div><p class="dname">${esc(k.name||"名称未入力")}</p><div class="row" style="margin-top:6px">${pill(k.status)}<span class="age">${ageLabel(k)}</span></div></div>
+    <div class="advance">${stepsBar(k.status)}
+      <div class="stepnames">${STEPS.map((s,i)=>`<span class="${i===k.status?"cur":""}">${s}</span>`).join("")}</div>
+      <div class="row" style="justify-content:space-between">
+        <button class="btn" data-a="back" ${k.status===0?"disabled":""}>1つ戻す</button>
+        <button class="btn primary" data-a="next" ${k.status===6?"disabled":""}>${k.status===6?"完成済み":"「"+STEPS[k.status+1]+"」に進める"}</button></div>
+    </div>
+    ${logBox(k)}
+    ${fields.length?`<div class="box"><dl>${fields.map(([a,b])=>`<dt>${a}</dt><dd class="${/価格|購入日/.test(a)?"num":""}">${esc(b)}</dd>`).join("")}</dl></div>`:""}
+    ${k.check?`<div class="box"><dl><dt>検品メモ</dt><dd>${esc(k.check)}</dd></dl></div>`:""}
+    ${k.memo?`<div class="box"><dl><dt>メモ</dt><dd>${esc(k.memo)}</dd></dl></div>`:""}
+    <div id="del"><button class="btn danger" data-a="askdel">このキットを削除</button></div>
+  </div>`;
+}
+$("#detail").addEventListener("change",async e=>{
+  const inp=e.target.closest("[data-log]");if(!inp||!inp.value)return;
+  const k=kits.find(x=>x.id===curId);if(!k)return;
+  const h=(k.history||[]).slice();const i=+inp.dataset.log;if(!h[i])return;
+  const t=Date.parse(inp.value+"T12:00:00");if(isNaN(t))return;
+  h[i]={...h[i],at:t};
+  try{await store.putKit({...k,history:h,updatedAt:Date.now()});await refresh();toast("日付を直しました")}catch(_){toast("保存できませんでした")}
+});
+$("#detail").addEventListener("click",async e=>{
+  const ph=e.target.closest("[data-ph]");if(ph){$("#mainph").src=src(ph.dataset.ph);ph.parentElement.querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed",b===ph));return}
+  const a=e.target.closest("[data-a]")?.dataset.a;if(!a)return;
+  const k=kits.find(x=>x.id===curId);
+  if(a==="close")closeDetail();
+  else if(a==="edit")openEditor(k);
+  else if(a==="next"||a==="back"){const s=Math.min(6,Math.max(0,k.status+(a==="next"?1:-1)));
+    try{await store.putKit({...withStatus(k,s),updatedAt:Date.now()});await refresh();if(a==="next")toast(s===6?"完成おめでとうございます":"「"+STEPS[s]+"」に進めました")}catch(_){toast("更新できませんでした")}}
+  else if(a==="askdel"){$("#del").innerHTML=`<div class="confirm">写真も含めて削除します。元に戻せません。<button class="btn danger" data-a="del">削除する</button><button class="btn ghost" data-a="nodel">やめる</button></div>`}
+  else if(a==="nodel")renderDetail();
+  else if(a==="del"){try{await store.delKit(k.id);for(const p of k.photos||[])await removePhoto(p);closeDetail();await refresh();toast("削除しました")}catch(_){toast("削除できませんでした")}}
+});
+
+/* ---------- 登録・編集 ---------- */
+let draft=null, newPhotos=[], removed=[], busy=0;
+function openEditor(k){
+  draft=k?JSON.parse(JSON.stringify(k)):{name:"",dealer:"",sculptor:"",scale:"",material:"レジン",event:"",bought:today(),price:"",status:0,check:"",place:"",memo:"",photos:[]};
+  newPhotos=[];removed=[];renderEditor();$("#editor").hidden=false;$("#editor").scrollTop=0;
+}
+function field(id,label,type="text",ph=""){return `<div class="f"><label for="e-${id}">${label}</label><input id="e-${id}" name="${id}" type="${type}" ${type==="number"?'inputmode="numeric" min="0"':""} placeholder="${ph}" value="${esc(draft[id])}"></div>`}
+function renderEditor(){
+  $("#editor").innerHTML=`<div class="wrap">
+    <div class="bar"><button class="btn ghost" data-a="cancel">キャンセル</button><h2>${draft.id?"キットを編集":"キットを登録"}</h2><button class="btn primary" data-a="save">保存</button></div>
+    <form id="kitform" novalidate>
+      <div class="f"><span class="flabel">写真</span><div class="photos" id="phs"></div></div>
+      <div class="f"><label for="e-name">キット名（必須）</label><input id="e-name" name="name" required value="${esc(draft.name)}" placeholder="例：〇〇 1/7 レジンキャストキット"></div>
+      <div class="two">${field("dealer","ディーラー/メーカー")}${field("sculptor","原型師")}</div>
+      <div class="two">${field("scale","スケール","text","1/7、ノンスケール等")}
+        <div class="f"><label for="e-material">素材</label><select id="e-material" name="material">${MATERIALS.map(m=>`<option ${draft.material===m?"selected":""}>${m}</option>`).join("")}</select></div></div>
+      <div class="two">${field("bought","購入日","date")}${field("price","価格（円）","number")}</div>
+      ${field("event","入手イベント・店","text","WF2026夏、通販 など")}
+      <div class="f"><span class="flabel">工程</span><div class="seg" id="seg">${STEPS.map((s,i)=>`<button type="button" data-s="${i}" aria-pressed="${draft.status===i}">${s}</button>`).join("")}</div></div>
+      ${field("place","保管場所","text","押し入れ上段・箱3 など")}
+      <div class="f"><label for="e-check">検品メモ</label><textarea id="e-check" name="check" placeholder="欠品・気泡・歪み、交換依頼の期限など">${esc(draft.check)}</textarea></div>
+      <div class="f"><label for="e-memo">メモ</label><textarea id="e-memo" name="memo" placeholder="塗装プラン、改造アイデアなど">${esc(draft.memo)}</textarea></div>
+      <p class="err" id="ferr" hidden></p>
+    </form></div>`;
+  renderPhotos();
+}
+function renderPhotos(){
+  const el=$("#phs");if(!el)return;
+  el.innerHTML=draft.photos.map((p,i)=>`<div class="ph"><img src="${src(p)}" alt=""><button type="button" data-rm="${i}" aria-label="写真を外す">×</button></div>`).join("")
+    +Array.from({length:busy},()=>`<div class="ph up">取り込み中…</div>`).join("")
+    +`<div class="addph"><span aria-hidden="true">＋ 写真を追加<br>（複数可）</span><input id="e-file" type="file" accept="image/*" multiple aria-label="写真を追加"></div>`;
+}
+function readForm(){const f=$("#kitform");for(const n of ["name","dealer","sculptor","scale","material","event","bought","price","place","check","memo"]){draft[n]=f.elements[n].value.trim()}draft.price=draft.price===""?"":Number(draft.price)}
+async function shrink(file){
+  try{
+    const url=URL.createObjectURL(file);const img=new Image();img.src=url;await img.decode();
+    const max=1600, s=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight));
+    const c=document.createElement("canvas");c.width=Math.round(img.naturalWidth*s);c.height=Math.round(img.naturalHeight*s);
+    c.getContext("2d").drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(url);
+    const b=await new Promise(r=>c.toBlob(r,"image/jpeg",.85));return b||file;
+  }catch(_){return file}
+}
+$("#editor").addEventListener("change",async e=>{
+  if(e.target.id!=="e-file")return;readForm();
+  const files=[...e.target.files];busy+=files.length;renderPhotos();
+  for(const f of files){
+    try{const b=await shrink(f);const id=uid();await store.putPhoto(id,b);urls[id]=URL.createObjectURL(b);draft.photos.push(id);newPhotos.push(id)}
+    catch(_){toast("写真を取り込めませんでした。端末の空き容量を確認してください")}
+    busy--;renderPhotos();
+  }
+});
+$("#editor").addEventListener("click",async e=>{
+  const s=e.target.closest("[data-s]");if(s){draft.status=+s.dataset.s;$("#seg").querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed",b===s));return}
+  const rm=e.target.closest("[data-rm]");if(rm){readForm();removed.push(draft.photos.splice(+rm.dataset.rm,1)[0]);renderPhotos();return}
+  const a=e.target.closest("[data-a]")?.dataset.a;
+  if(a==="cancel"){for(const p of newPhotos)await removePhoto(p);$("#editor").hidden=true}
+  if(a==="save")save();
+});
+$("#editor").addEventListener("submit",e=>{e.preventDefault();save()});
+async function save(){
+  readForm();const err=$("#ferr");
+  if(!draft.name){err.textContent="キット名を入力してください。";err.hidden=false;$("#e-name").focus();return}
+  if(busy){err.textContent="写真の取り込みが終わるまでお待ちください。";err.hidden=false;return}
+  const isNew=!draft.id;
+  let k={...draft,id:draft.id||uid(),updatedAt:Date.now(),createdAt:draft.createdAt||Date.now()};
+  if(isNew)k.history=[{s:k.status,at:Date.now()}];
+  else{const prev=kits.find(x=>x.id===k.id);if(prev&&prev.status!==k.status)k={...withStatus(prev,k.status),...k,status:k.status,history:withStatus(prev,k.status).history}}
+  try{
+    await store.putKit(k);
+    for(const p of removed)await removePhoto(p);
+    $("#editor").hidden=true;await refresh();toast(isNew?"登録しました":"保存しました");
+    if(isNew)askPersist();
+  }catch(_){err.textContent="保存できませんでした。端末の空き容量を確認してもう一度お試しください。";err.hidden=false}
+}
+
+/* ---------- バックアップ（機種変更用） ---------- */
+function blobToDataURL(b){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=()=>rej(r.error);r.readAsDataURL(b)})}
+async function dataURLToBlob(u){const r=await fetch(u);return r.blob()}
+function fmtBytes(n){return n>1048576?(n/1048576).toFixed(1)+" MB":Math.ceil(n/1024)+" KB"}
+async function openBackup(){
+  const last=Number(ls.get("lastBackup")||0);
+  let usage="";
+  try{const e=await navigator.storage?.estimate?.();if(e?.usage)usage=`このアプリが使っている容量：約${fmtBytes(e.usage)}`}catch(_){}
+  $("#backup").innerHTML=`<div class="wrap">
+    <div class="bar"><button class="btn ghost" data-b="close">← 一覧</button><h2>バックアップ・機種変更</h2><span style="width:60px"></span></div>
+    <div class="box"><h3>バックアップを保存</h3>
+      <p>キット${kits.length}件と写真をまとめて1つのファイルにします。iCloud Drive、Googleドライブ、パソコンなど、スマホ以外の場所にも保存しておくと安心です。<br>${last?"前回の保存："+ymd(new Date(last)):"まだ保存していません"}</p>
+      <button class="btn primary wide" data-b="export" ${kits.length?"":"disabled"}>バックアップファイルを作る</button>
+      <p id="exmsg" style="margin:8px 0 0"></p></div>
+    <div class="box"><h3>バックアップから読み込む</h3>
+      <p>新しいスマホでこのアプリを開き、前の機種で作ったファイルを選びます。同じキットは上書きされ、今あるほかのキットはそのまま残ります。</p>
+      <label class="filepick btn wide" style="text-align:center">ファイルを選んで読み込む<input id="b-file" type="file" accept=".json,application/json" aria-label="バックアップファイルを選ぶ"></label>
+      <p id="immsg" style="margin:8px 0 0"></p></div>
+    <div class="box"><h3>機種変更の手順</h3>
+      <p style="margin:0">1. 前のスマホで「バックアップファイルを作る」<br>2. ファイルをクラウドかAirDrop・メールなどで新しいスマホへ送る<br>3. 新しいスマホでこのアプリを開き、ホーム画面に追加<br>4. 「ファイルを選んで読み込む」で取り込む<br><br>iPhoneとAndroidの間でも同じファイルで移せます。${usage?"<br><br>"+usage:""}</p></div>
+  </div>`;
+  $("#backup").hidden=false;$("#backup").scrollTop=0;
+}
+$("#backup").addEventListener("click",async e=>{
+  const a=e.target.closest("[data-b]")?.dataset.b;
+  if(a==="close"){$("#backup").hidden=true;render()}
+  if(a==="export")exportBackup(e.target.closest("button"));
+});
+$("#backup").addEventListener("change",e=>{if(e.target.id==="b-file"&&e.target.files[0])importBackup(e.target.files[0],e.target)});
+async function exportBackup(btn){
+  const msg=$("#exmsg");btn.disabled=true;msg.textContent="ファイルを作成中…";
+  try{
+    const photos={};
+    for(const k of kits)for(const id of k.photos||[]){if(photos[id])continue;const b=await store.getPhoto(id);if(b)photos[id]=await blobToDataURL(b)}
+    const data={app:"garekichou",version:1,exportedAt:new Date().toISOString(),kits,photos};
+    const name=`garekichou-backup-${today().replace(/-/g,"")}.json`;
+    const file=new File([JSON.stringify(data)],name,{type:"application/json"});
+    let done=false;
+    const ios=/iPhone|iPad|iPod/.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
+    if(ios&&navigator.canShare?.({files:[file]})){
+      try{await navigator.share({files:[file],title:"ガレキ積み帳のバックアップ"});done=true}
+      catch(err){if(err?.name==="AbortError"){msg.textContent="保存をやめました。";btn.disabled=false;return}}
+    }
+    if(!done){
+      const u=URL.createObjectURL(file);const a=document.createElement("a");a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();
+      setTimeout(()=>URL.revokeObjectURL(u),60000);
+    }
+    ls.set("lastBackup",String(Date.now()));
+    msg.textContent=`${name}（${fmtBytes(file.size)}）を作成しました。${ios?"「ファイルに保存」でiCloud Driveなどに保存してください。":"ダウンロードフォルダを確認してください。"}`;
+  }catch(err){msg.textContent="ファイルを作れませんでした。写真が多い場合は端末の空き容量を確認してください。"}
+  btn.disabled=false;
+}
+async function importBackup(file,input){
+  const msg=$("#immsg");msg.textContent="読み込み中…";
+  try{
+    const data=JSON.parse(await file.text());
+    if(data?.app!=="garekichou"||!Array.isArray(data.kits))throw new Error("format");
+    let n=0,p=0;
+    for(const [id,u] of Object.entries(data.photos||{})){if(typeof u!=="string"||!u.startsWith("data:image/"))continue;await store.putPhoto(id,await dataURLToBlob(u));if(urls[id]){URL.revokeObjectURL(urls[id]);delete urls[id]}p++}
+    for(const k of data.kits){if(!k||typeof k.id!=="string")continue;await store.putKit({...k,photos:Array.isArray(k.photos)?k.photos:[]});n++}
+    await refresh();askPersist();
+    msg.textContent=`キット${n}件、写真${p}枚を読み込みました。`;
+    toast("バックアップを読み込みました");
+  }catch(err){msg.textContent=err?.message==="format"?"ガレキ積み帳のバックアップファイルではないようです。ファイルを確認してください。":"読み込めませんでした。ファイルが壊れていないか、端末の空き容量が足りているか確認してください。"}
+  input.value="";
+}
+
+/* ---------- 起動 ---------- */
+render();
+if(!("indexedDB" in window)){failed=true;loaded=true;render()}else refresh();
+if("serviceWorker" in navigator&&location.protocol==="https:")navigator.serviceWorker.register("sw.js").catch(()=>{});
+</script>
+</body>
+</html>
