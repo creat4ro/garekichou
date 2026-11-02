@@ -11,8 +11,10 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);fo
   padding-top:env(safe-area-inset-top,0px);padding-bottom:calc(env(safe-area-inset-bottom,0px) + 48px);
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
 main{max-width:720px;margin:0 auto}
-.back{display:inline-block;margin:20px 0 8px;color:var(--muted);font-size:14px;text-decoration:none}
-.back:hover{color:var(--ink)}
+.back{display:inline-block;margin:16px 0 8px;padding:8px 14px;border:1px solid var(--line);background:var(--surface);border-radius:8px;color:var(--ink);font-size:14px;font-weight:700;text-decoration:none}
+.back:hover,.btn-back:hover{border-color:var(--tape)}
+.foot-back{margin:20px 0 0}
+.btn-back{display:block;text-align:center;padding:12px 16px;border-radius:8px;background:var(--tape);color:var(--tape-ink);font-weight:700;text-decoration:none}
 h1{font-family:var(--f-display);font-weight:400;font-size:24px;line-height:1.4;margin:8px 0 4px;text-wrap:balance}
 h1 span{display:block;width:fit-content;margin-bottom:6px;background:var(--tape);color:var(--tape-ink);padding:0 8px;transform:rotate(-1.5deg);margin-right:4px;font-size:.8em}
 .meta{color:var(--muted);font-size:13px;margin:0 0 24px}

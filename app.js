@@ -618,6 +618,20 @@ $("#intro").addEventListener("click",async e=>{
   else if(a==="login"){await connect();if(sync.pendingEmail){closeIntro();return}renderIntro()}
 });
 $("#openIntro").addEventListener("click",e=>{e.preventDefault();openIntro(0)});
+/* 案内や同期画面から規約・ポリシーを開いたら、戻ったときに同じ画面を開き直す */
+function rememberReturn(e,to){
+  const link=e.target.closest('a[href$=".html"]');if(!link)return;
+  try{sessionStorage.setItem("garekichou-return",JSON.stringify({to,step:introStep}))}catch(_){}
+}
+$("#intro").addEventListener("click",e=>rememberReturn(e,"intro"),true);
+window.addEventListener("pageshow",e=>{if(e.persisted){try{sessionStorage.removeItem("garekichou-return")}catch(_){}}});
+$("#backup").addEventListener("click",e=>rememberReturn(e,"backup"),true);
+function takeReturn(){
+  let r=null;try{r=JSON.parse(sessionStorage.getItem("garekichou-return")||"null");sessionStorage.removeItem("garekichou-return")}catch(_){}
+  if(r?.to==="intro"){openIntro(Number(r.step)||0);return true}
+  if(r?.to==="backup"){openBackup();return true}
+  return false;
+}
 
 /* ---------- 起動 ---------- */
 document.addEventListener("keydown",e=>{
@@ -640,5 +654,5 @@ if(wide)$("#detail").hidden=false;
 updateSyncUI();
 render();
 if(!("indexedDB" in window)){failed=true;loaded=true;render()}
-else refresh().then(()=>{if(ls.get("introDone")!=="1"&&!kits.length&&!sync.linked)openIntro(0)});
+else refresh().then(()=>{if(takeReturn())return;if(ls.get("introDone")!=="1"&&!kits.length&&!sync.linked)openIntro(0)});
 if("serviceWorker" in navigator&&location.protocol==="https:")navigator.serviceWorker.register("sw.js").catch(()=>{});
