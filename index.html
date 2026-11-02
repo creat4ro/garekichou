@@ -159,6 +159,10 @@ form{display:grid;gap:14px}
 #openBackup[data-state="needtap"],#openBackup[data-state="error"]{border-color:var(--warn);color:var(--warn)}
 #openBackup[data-state="ok"]{color:var(--done);border-color:color-mix(in srgb,var(--done) 45%,var(--line))}
 #openBackup[data-state="syncing"]{color:var(--ink)}
+#openBackup[data-state="syncing"]::before,.btn.spin::before{content:"";display:inline-block;width:11px;height:11px;margin-right:6px;vertical-align:-1px;
+  border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){#openBackup[data-state="syncing"]::before,.btn.spin::before{animation-duration:2.4s}}
 .small{font-size:12px;color:var(--muted);margin:8px 0 0}
 .stack{display:grid;gap:8px}
 .stack .btn{text-align:left;line-height:1.4}

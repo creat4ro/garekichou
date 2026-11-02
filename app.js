@@ -144,6 +144,39 @@ async function refresh(){
   if(wide||(curId&&!$("#detail").hidden))renderDetail();
 }
 
+/* ---------- 画面の重なりと戻るキー ----------
+   詳細（スマホ）・登録/編集・同期とバックアップ・使い方の案内を開くたびに履歴を1つ積み、
+   端末の戻るキー（ブラウザの戻る）で一番上の画面から閉じる。画面内の「戻る」「キャンセル」も同じ経路で閉じる */
+const nav={stack:[],editorSaved:false,ignore:0,pending:[]};
+function pushLayer(name){
+  if(nav.stack.includes(name))return;
+  nav.stack.push(name);
+  /* 直前に閉じた画面の「戻る」がまだ終わっていなければ、終わってから履歴を積む（素早く操作しても履歴がずれないように） */
+  if(nav.ignore>0)nav.pending.push(name);else{try{history.pushState({gk:name},"")}catch(_){}}
+}
+function popLayer(name){
+  const i=nav.stack.lastIndexOf(name);
+  if(i<0){rawClose(name);return}
+  /* 画面はすぐ閉じ、積んだ履歴だけ戻す（そのとき届く popstate は無視する） */
+  nav.stack.splice(i,1);rawClose(name);
+  if(i===nav.stack.length){nav.ignore++;try{history.back()}catch(_){nav.ignore--}}
+}
+function swapLayer(from,to){
+  const i=nav.stack.lastIndexOf(from);rawClose(from);
+  if(i>=0){nav.stack[i]=to;try{history.replaceState({gk:to},"")}catch(_){}}else pushLayer(to);
+}
+function rawClose(name){
+  if(name==="detail"){curId=null;if(wide){renderDetail();render()}else $("#detail").hidden=true}
+  else if(name==="editor"){if(!nav.editorSaved){for(const p of newPhotos)removePhoto(p)}nav.editorSaved=false;newPhotos=[];$("#editor").hidden=true}
+  else if(name==="backup"){$("#backup").hidden=true;render()}
+  else if(name==="intro"){$("#intro").hidden=true;ls.set("introDone","1")}
+}
+window.addEventListener("popstate",()=>{
+  if(nav.ignore>0){nav.ignore--;if(!nav.ignore)for(const n of nav.pending.splice(0)){if(nav.stack.includes(n)){try{history.pushState({gk:n},"")}catch(_){}}}return}
+  const name=nav.stack.pop();if(name)rawClose(name);
+});
+function closeTop(){const t=nav.stack[nav.stack.length-1];if(t)popLayer(t);else if(curId)closeDetail()}
+
 /* ---------- 一覧 ---------- */
 function group(k){return isDone(k)?"done":k.status<=1?"todo":"wip"}
 let kindFilter=ls.get("kf")||"all";
@@ -168,7 +201,7 @@ function render(){
   if(failed){list.innerHTML=`<div class="notice">このブラウザでは端末内にデータを保存できませんでした。プライベートブラウズを使っている場合は、通常のタブで開いてください。</div>`;return}
   let html="";
   const last=Number(ls.get("lastBackup")||0);
-  if(total&&Date.now()-last>30*864e5)html+=`<div class="remind"><span>${last?"最後のバックアップから30日以上たっています。":"まだバックアップがありません。"}</span><button class="btn" data-open-backup>保存する</button></div>`;
+  if(total&&!sync.linked&&Date.now()-last>30*864e5)html+=`<div class="remind"><span>${last?"最後のバックアップから30日以上たっています。":"まだバックアップがありません。"}</span><button class="btn" data-open-backup>保存する</button></div>`;
   if(!total){list.innerHTML=html+`<div class="empty">まだキットがありません。<br>「＋ キットを登録」から、箱の写真と一緒に1つ目を追加しましょう。<br><br>前の機種のバックアップがある場合は、右上の「バックアップ」から読み込めます。</div>`;return}
   if(!rows.length){list.innerHTML=html+`<div class="empty">条件に合うキットはありません。</div>`;return}
   list.innerHTML=html+rows.map(k=>{
@@ -197,8 +230,8 @@ $("#openBackup").addEventListener("click",()=>{if(sync.linked&&sync.state==="nee
 /* ---------- 詳細 ---------- */
 let curId=null;
 const wideMQ=matchMedia("(min-width:960px)");let wide=wideMQ.matches;
-function openDetail(id){curId=id;renderDetail();$("#detail").hidden=false;$("#detail").scrollTop=0;if(wide)render()}
-function closeDetail(){curId=null;if(wide){renderDetail();render()}else $("#detail").hidden=true}
+function openDetail(id){curId=id;renderDetail();$("#detail").hidden=false;$("#detail").scrollTop=0;if(wide)render();else pushLayer("detail")}
+function closeDetail(){if(nav.stack.includes("detail"))popLayer("detail");else rawClose("detail")}
 function onWideChange(){wide=wideMQ.matches;if(wide){$("#detail").hidden=false;renderDetail()}else if(!curId)$("#detail").hidden=true;render()}
 wideMQ.addEventListener?wideMQ.addEventListener("change",onWideChange):wideMQ.addListener(onWideChange);
 function renderOverview(){
@@ -276,7 +309,7 @@ function openEditor(k){
   draft=k?JSON.parse(JSON.stringify(k)):{kind,name:"",dealer:"",sculptor:"",grade:"",scale:"",material:"レジン（キャスト）",event:"",bought:today(),price:"",status:0,check:"",place:"",memo:"",photos:[]};
   if(!draft.kind)draft.kind="gk";
   if(isPM(draft)&&!PM_COURSES.includes(draft.course))draft.course=k?"zentoso":(ls.get("lastCourse")||"suguri");
-  copying=false;newPhotos=[];removed=[];renderEditor();$("#editor").hidden=false;$("#editor").scrollTop=0;
+  copying=false;newPhotos=[];removed=[];renderEditor();$("#editor").hidden=false;$("#editor").scrollTop=0;pushLayer("editor");
 }
 /* 同じキットを複数買ったときなどに、内容を引き継いで新しく登録する。
    工程・工程の記録・検品メモは引き継がず、写真は別々に消せるよう複製する */
@@ -287,10 +320,11 @@ function copyDraft(k){
   d.status=0;d.check="";d.photos=[];return d;
 }
 async function openCopy(k){
-  draft=copyDraft(k);copying=true;newPhotos=[];removed=[];
+  draft=copyDraft(k);copying=true;newPhotos=[];removed=[];pushLayer("editor");
   for(const id of k.photos||[]){
     try{const b=await store.getPhoto(id);if(!b)continue;const nid=uid();await store.putPhoto(nid,b);urls[nid]=URL.createObjectURL(b);draft.photos.push(nid);newPhotos.push(nid)}catch(_){}
   }
+  if(!nav.stack.includes("editor")){for(const p of newPhotos)removePhoto(p);newPhotos=[];return} /* 複製中に戻るが押された */
   renderEditor();$("#editor").hidden=false;$("#editor").scrollTop=0;
   toast("コピーしました。違うところを直して保存してください",3000);
 }
@@ -402,7 +436,7 @@ $("#editor").addEventListener("click",async e=>{
   const s=e.target.closest("[data-s]");if(s){draft.status=+s.dataset.s;$("#seg").querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed",b===s));return}
   const rm=e.target.closest("[data-rm]");if(rm){readForm();removed.push(draft.photos.splice(+rm.dataset.rm,1)[0]);renderPhotos();return}
   const a=e.target.closest("[data-a]")?.dataset.a;
-  if(a==="cancel"){for(const p of newPhotos)await removePhoto(p);$("#editor").hidden=true}
+  if(a==="cancel")popLayer("editor");
   if(a==="save")save();
 });
 $("#editor").addEventListener("submit",e=>{e.preventDefault();save()});
@@ -428,7 +462,7 @@ async function save(){
   try{
     await store.putKit(k);
     for(const p of removed)await removePhoto(p);
-    $("#editor").hidden=true;await refresh();toast(isNew?"登録しました":"保存しました");
+    nav.editorSaved=true;popLayer("editor");await refresh();toast(isNew?"登録しました":"保存しました");
     if(isNew)askPersist();
   }catch(_){err.textContent="保存できませんでした。端末の空き容量を確認してもう一度お試しください。";err.hidden=false}
 }
@@ -438,9 +472,11 @@ function blobToDataURL(b){return new Promise((res,rej)=>{const r=new FileReader(
 async function dataURLToBlob(u){const r=await fetch(u);return r.blob()}
 function fmtBytes(n){return n>1048576?(n/1048576).toFixed(1)+" MB":Math.ceil(n/1024)+" KB"}
 async function openBackup(){
+  pushLayer("backup");
   const last=Number(ls.get("lastBackup")||0);
   let usage="";
   try{const e=await navigator.storage?.estimate?.();if(e?.usage)usage=`このアプリが使っている容量：約${fmtBytes(e.usage)}`}catch(_){}
+  if(!nav.stack.includes("backup"))return; /* 開いている途中で戻るが押された */
   $("#backup").innerHTML=`<div class="wrap">
     <div class="bar"><button class="btn ghost" data-b="close">← 一覧</button><h2>${CLIENT_ID?"同期とバックアップ":"バックアップ・機種変更"}</h2><span style="width:60px"></span></div>
     ${CLIENT_ID?`<div class="box" id="syncbox"></div>`:""}
@@ -461,10 +497,10 @@ async function openBackup(){
 }
 $("#backup").addEventListener("click",async e=>{
   const a=e.target.closest("[data-b]")?.dataset.b;
-  if(a==="close"){$("#backup").hidden=true;render()}
+  if(a==="close")popLayer("backup");
   if(a==="export")exportBackup(e.target.closest("button"));
   if(a==="login")connect();
-  if(a==="intro"){e.preventDefault();$("#backup").hidden=true;openIntro(0)}
+  if(a==="intro"){e.preventDefault();swapLayer("backup","intro");openIntro(0)}
   if(a==="syncnow"){if(sync.token&&Date.now()<sync.exp)runSync();else connect()}
   if(a==="logout"){logout(false)}
   if(a==="askwipe"){sync.confirmWipe=true;renderSyncBox()}
@@ -561,7 +597,7 @@ function renderSyncBox(){
   el.innerHTML=`<h3>Googleドライブで同期</h3>
     <p><b>${esc(sync.email)}</b> で同期しています。<br>${esc(status)}</p>
     ${sync.err?`<p class="err">${esc(sync.err)}</p>`:""}
-    <button class="btn primary wide" data-b="syncnow" ${sync.state==="syncing"?"disabled":""}>今すぐ同期</button>
+    <button class="btn primary wide ${sync.state==="syncing"?"spin":""}" data-b="syncnow" ${sync.state==="syncing"?"disabled":""}>${sync.state==="syncing"?"同期しています":"今すぐ同期"}</button>
     <div class="row" style="margin-top:10px">
       <button class="btn" data-b="logout">ログアウト</button>
       ${sync.confirmWipe?`<span class="confirm">この端末のキットと写真を消します（ドライブには残ります）。<button class="btn danger" data-b="wipe">消してログアウト</button><button class="btn ghost" data-b="nowipe">やめる</button></span>`:`<button class="btn danger" data-b="askwipe">ログアウトしてこの端末のデータを消す</button>`}
@@ -625,11 +661,22 @@ async function logout(wipe){
   else toast("ログアウトしました。この端末のデータは残っています");
   updateSyncUI();
 }
+/* 保存・工程の変更・削除のボタンを押したとき、同期の許可が切れていたらその場で取り直す
+   （ログイン画面は一瞬開いてすぐ閉じる。ボタンを押した瞬間でないと開けないため、ここで行う） */
+function ensureToken(){
+  if(!CLIENT_ID||!sync.linked||sync.pendingEmail||!gisReady())return;
+  if(sync.token&&Date.now()<sync.exp)return;
+  if(sync.tokenBusy)return;sync.tokenBusy=true;
+  requestToken("",sync.email).then(()=>{sync.tokenBusy=false;scheduleSync()}).catch(()=>{sync.tokenBusy=false;sync.state="needtap";updateSyncUI()});
+}
+document.addEventListener("click",e=>{
+  if(e.target.closest('#editor [data-a=save],#detail [data-a=next],#detail [data-a=back],#detail [data-a=del],#backup #b-file'))ensureToken();
+},true);
 function scheduleSync(){
   if(!CLIENT_ID||!sync.linked||sync.pendingEmail)return;
   clearTimeout(sync.timer);
   if(!sync.token||Date.now()>sync.exp){sync.state="needtap";updateSyncUI();return}
-  sync.timer=setTimeout(runSync,1500);
+  sync.timer=setTimeout(runSync,800);
 }
 async function folderId(){
   const c=ls.get("g_folder");if(c)return c;
@@ -768,15 +815,15 @@ function renderIntro(){
   $("#intro").scrollTop=0;
 }
 function introGo(d){introStep+=d;renderIntro()}
-function openIntro(step){introStep=step||0;renderIntro();$("#intro").hidden=false;$("#intro [data-i=next]")?.focus()}
-function closeIntro(){$("#intro").hidden=true;ls.set("introDone","1")}
+function openIntro(step){introStep=step||0;renderIntro();$("#intro").hidden=false;$("#intro [data-i=next]")?.focus();pushLayer("intro")}
+function closeIntro(){if(nav.stack.includes("intro"))popLayer("intro");else rawClose("intro")}
 $("#intro").addEventListener("click",async e=>{
   const a=e.target.closest("[data-i]")?.dataset.i;if(!a)return;
   if(a==="next")introGo(1);
   else if(a==="prev")introGo(-1);
   else if(a==="skip"||a==="done")closeIntro();
-  else if(a==="first"){closeIntro();openEditor(null)}
-  else if(a==="restore"){closeIntro();openBackup()}
+  else if(a==="first"){swapLayer("intro","editor");openEditor(null)}
+  else if(a==="restore"){swapLayer("intro","backup");openBackup()}
   else if(a==="install"&&installEvt){installEvt.prompt();try{await installEvt.userChoice}catch(_){}installEvt=null;renderIntro()}
   else if(a==="login"){await connect();if(sync.pendingEmail){closeIntro();return}renderIntro()}
 });
@@ -800,10 +847,7 @@ function takeReturn(){
 document.addEventListener("keydown",e=>{
   if(e.target.closest("input,textarea,select"))return;
   if(e.key==="Escape"){
-    if(!$("#editor").hidden){$("#editor [data-a=cancel]")?.click();return}
-    if(!$("#intro").hidden){closeIntro();return}
-    if(!$("#backup").hidden){$("#backup").hidden=true;render();return}
-    if(curId)closeDetail();return;
+    closeTop();return;
   }
   if(!$("#intro").hidden){if(e.key==="ArrowRight")introGo(1);if(e.key==="ArrowLeft")introGo(-1);return}
   if(!wide||!$("#editor").hidden||!$("#backup").hidden)return;
